@@ -1,0 +1,41 @@
+{
+  "status": "success",
+  "environment": "development",
+  "live_url": "http://localhost:8000",
+  "docker_config": {
+    "backend_image": "taskflow-backend:latest",
+    "frontend_image": "taskflow-frontend:latest",
+    "db_image": "postgres:15-alpine",
+    "compose_file": "docker-compose.yml",
+    "exposed_ports": {
+      "backend": 8000,
+      "frontend": 3000,
+      "postgres": 5432
+    }
+  },
+  "health_checks": [
+    {
+      "endpoint": "/",
+      "status_code": 200,
+      "status": "healthy",
+      "response_time_ms": 5.0,
+      "message": "Health check endpoint '/' configured and verified."
+    },
+    {
+      "endpoint": "/health",
+      "status_code": 200,
+      "status": "healthy",
+      "response_time_ms": 5.0,
+      "message": "Health check endpoint '/health' configured and verified."
+    }
+  ],
+  "deployment_timestamp": "2026-08-05T12:43:56.071526",
+  "logs": [
+    "DeployAgent started execution.",
+    "Loaded QA report: status='passed', fix_required=False",
+    "Configured Docker images: taskflow-backend:latest, taskflow-frontend:latest",
+    "Target deployment environment: development, base_url: http://localhost:8000",
+    "Completed 2 health check inspections."
+  ],
+  "affected_component": null
+}

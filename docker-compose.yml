@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: forge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-forge_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forge_password}
+      POSTGRES_DB: ${POSTGRES_DB:-forge_db}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-forge_user} -d ${POSTGRES_DB:-forge_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - forge-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: forge-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-forge_user}:${POSTGRES_PASSWORD:-forge_password}@postgres:5432/${POSTGRES_DB:-forge_db}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - USE_LLM=${USE_LLM:-false}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - PORT=8000
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./outputs:/app/outputs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      - forge-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: forge-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_BASE_URL=http://backend:8000
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+    networks:
+      - forge-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  forge-network:
+    driver: bridge
