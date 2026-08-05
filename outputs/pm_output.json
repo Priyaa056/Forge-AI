@@ -1,14 +1,12 @@
 {
-  "project_name": "Task Management App",
-  "description": "An application designed to help users organize, track, and manage their tasks efficiently, allowing for task creation, progress tracking, and prioritization.",
+  "project_name": "TaskFlow",
+  "description": "A streamlined task management application that helps users organize, prioritize, and track their daily tasks and projects.",
   "features": [
-    "Create new tasks with title, description, due date, and priority",
-    "View a list of all tasks",
-    "Mark tasks as complete/incomplete",
-    "Edit existing task details",
-    "Delete tasks",
-    "Filter tasks by status (e.g., pending, completed)",
-    "Sort tasks by due date or priority"
+    "User registration and secure authentication",
+    "Create, read, update, and delete (CRUD) tasks",
+    "Set task priorities, due dates, and status tracking",
+    "Organize tasks by categories and tags",
+    "Filter and search tasks by priority, status, or date range"
   ],
   "tech_stack": {
     "frontend": "React",
@@ -17,39 +15,89 @@
   },
   "database_entities": [
     {
+      "name": "User",
+      "fields": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "username",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "hashed_password",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME"
+        }
+      ]
+    },
+    {
       "name": "Task",
       "fields": [
         {
           "name": "id",
-          "type": "integer"
+          "type": "INTEGER"
+        },
+        {
+          "name": "user_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "category_id",
+          "type": "INTEGER"
         },
         {
           "name": "title",
-          "type": "string"
+          "type": "VARCHAR"
         },
         {
           "name": "description",
-          "type": "text"
-        },
-        {
-          "name": "due_date",
-          "type": "datetime"
-        },
-        {
-          "name": "priority",
-          "type": "string"
+          "type": "TEXT"
         },
         {
           "name": "status",
-          "type": "string"
+          "type": "VARCHAR"
+        },
+        {
+          "name": "priority",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "due_date",
+          "type": "DATETIME"
         },
         {
           "name": "created_at",
-          "type": "datetime"
+          "type": "DATETIME"
+        }
+      ]
+    },
+    {
+      "name": "Category",
+      "fields": [
+        {
+          "name": "id",
+          "type": "INTEGER"
         },
         {
-          "name": "updated_at",
-          "type": "datetime"
+          "name": "user_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "color_code",
+          "type": "VARCHAR"
         }
       ]
     }

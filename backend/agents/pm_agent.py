@@ -7,19 +7,19 @@ import google.generativeai as genai
 # Load .env from backend folder
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
-print(f"Resolved .env path: {env_path}")
 
-# Get API key
-api_key = os.getenv("GOOGLE_API_KEY")
-print(f"Loaded GOOGLE_API_KEY: {api_key}")
-
-# Validate
-if api_key is None:
-    raise ValueError(f"GOOGLE_API_KEY not found in {env_path}")
-
-genai.configure(api_key=api_key)
-
-model = genai.GenerativeModel("gemini-2.5-flash")
+def get_gemini_model():
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key or api_key == "your_gemini_api_key_here":
+        raise ValueError(f"GOOGLE_API_KEY not found or default in {env_path}")
+    genai.configure(api_key=api_key)
+    # Try gemini-flash-latest, gemini-2.0-flash-lite, gemini-pro-latest
+    for model_name in ["gemini-flash-latest", "gemini-2.0-flash-lite", "gemini-pro-latest", "gemini-2.0-flash"]:
+        try:
+            return genai.GenerativeModel(model_name)
+        except Exception:
+            continue
+    return genai.GenerativeModel("gemini-flash-latest")
 
 
 def generate_pm_output(user_prompt: str):
@@ -61,6 +61,7 @@ USER IDEA:
 {user_prompt}
 """
 
+    model = get_gemini_model()
     response = model.generate_content(prompt)
     return response.text
 
