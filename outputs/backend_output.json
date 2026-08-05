@@ -1,0 +1,1577 @@
+{
+  "project_name": "TaskFlow",
+  "architecture": "Clean Architecture (Controller-Service-Repository)",
+  "endpoints": [
+    {
+      "path": "/api/users",
+      "method": "GET",
+      "summary": "List all users",
+      "description": "Retrieve paginated list of users with optional filtering and sorting.",
+      "operation_id": "list_users",
+      "tags": [
+        "User"
+      ],
+      "requires_auth": false,
+      "required_roles": [],
+      "request_schema": null,
+      "response_schema": {
+        "name": "UserResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "username",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "hashed_password",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "created_at",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "page",
+          "in_location": "query",
+          "param_type": "int",
+          "required": false,
+          "default": 1,
+          "description": "Page number"
+        },
+        {
+          "name": "limit",
+          "in_location": "query",
+          "param_type": "int",
+          "required": false,
+          "default": 20,
+          "description": "Items per page"
+        },
+        {
+          "name": "search",
+          "in_location": "query",
+          "param_type": "str",
+          "required": false,
+          "default": null,
+          "description": "Search keyword"
+        },
+        {
+          "name": "sort_by",
+          "in_location": "query",
+          "param_type": "str",
+          "required": false,
+          "default": "id",
+          "description": "Sort column"
+        },
+        {
+          "name": "order",
+          "in_location": "query",
+          "param_type": "str",
+          "required": false,
+          "default": "asc",
+          "description": "Sort order (asc/desc)"
+        }
+      ],
+      "business_logic_summary": "Fetch paginated users matching query parameters.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/users/{id}",
+      "method": "GET",
+      "summary": "Get User by ID",
+      "description": "Retrieve single User detail by identifier.",
+      "operation_id": "get_user_by_id",
+      "tags": [
+        "User"
+      ],
+      "requires_auth": false,
+      "required_roles": [],
+      "request_schema": null,
+      "response_schema": {
+        "name": "UserResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "username",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "hashed_password",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "created_at",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in_location": "path",
+          "param_type": "int",
+          "required": true,
+          "default": null,
+          "description": "User ID"
+        }
+      ],
+      "business_logic_summary": "Fetch User record from database or raise 404 if not found.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/users",
+      "method": "POST",
+      "summary": "Create new User",
+      "description": "Create a new User record.",
+      "operation_id": "create_user",
+      "tags": [
+        "User"
+      ],
+      "requires_auth": false,
+      "required_roles": [],
+      "request_schema": {
+        "name": "UserCreate",
+        "fields": [
+          {
+            "name": "username",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "hashed_password",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "response_schema": {
+        "name": "UserResponse",
+        "status_code": 201,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "username",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "hashed_password",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "created_at",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [],
+      "business_logic_summary": "Validate request body, construct User entity, and persist to database.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/users/{id}",
+      "method": "PUT",
+      "summary": "Update User",
+      "description": "Update an existing User record by ID.",
+      "operation_id": "update_user",
+      "tags": [
+        "User"
+      ],
+      "requires_auth": false,
+      "required_roles": [],
+      "request_schema": {
+        "name": "UserUpdate",
+        "fields": [
+          {
+            "name": "username",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "hashed_password",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "response_schema": {
+        "name": "UserResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "username",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "hashed_password",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "created_at",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in_location": "path",
+          "param_type": "int",
+          "required": true,
+          "default": null,
+          "description": "User ID"
+        }
+      ],
+      "business_logic_summary": "Verify User exists, update provided fields, and save changes.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/users/{id}",
+      "method": "DELETE",
+      "summary": "Delete User",
+      "description": "Remove a User record from database.",
+      "operation_id": "delete_user",
+      "tags": [
+        "User"
+      ],
+      "requires_auth": false,
+      "required_roles": [
+        "admin"
+      ],
+      "request_schema": null,
+      "response_schema": {
+        "name": "MessageResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "message",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in_location": "path",
+          "param_type": "int",
+          "required": true,
+          "default": null,
+          "description": "User ID"
+        }
+      ],
+      "business_logic_summary": "Delete User record from database or raise 404.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/tasks",
+      "method": "GET",
+      "summary": "List all tasks",
+      "description": "Retrieve paginated list of tasks with optional filtering and sorting.",
+      "operation_id": "list_tasks",
+      "tags": [
+        "Task"
+      ],
+      "requires_auth": true,
+      "required_roles": [
+        "user",
+        "admin"
+      ],
+      "request_schema": null,
+      "response_schema": {
+        "name": "TaskResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "category_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "title",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "description",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "priority",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "due_date",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "created_at",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "page",
+          "in_location": "query",
+          "param_type": "int",
+          "required": false,
+          "default": 1,
+          "description": "Page number"
+        },
+        {
+          "name": "limit",
+          "in_location": "query",
+          "param_type": "int",
+          "required": false,
+          "default": 20,
+          "description": "Items per page"
+        },
+        {
+          "name": "search",
+          "in_location": "query",
+          "param_type": "str",
+          "required": false,
+          "default": null,
+          "description": "Search keyword"
+        },
+        {
+          "name": "sort_by",
+          "in_location": "query",
+          "param_type": "str",
+          "required": false,
+          "default": "id",
+          "description": "Sort column"
+        },
+        {
+          "name": "order",
+          "in_location": "query",
+          "param_type": "str",
+          "required": false,
+          "default": "asc",
+          "description": "Sort order (asc/desc)"
+        }
+      ],
+      "business_logic_summary": "Fetch paginated tasks matching query parameters.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/tasks/{id}",
+      "method": "GET",
+      "summary": "Get Task by ID",
+      "description": "Retrieve single Task detail by identifier.",
+      "operation_id": "get_task_by_id",
+      "tags": [
+        "Task"
+      ],
+      "requires_auth": true,
+      "required_roles": [
+        "user",
+        "admin"
+      ],
+      "request_schema": null,
+      "response_schema": {
+        "name": "TaskResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "category_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "title",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "description",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "priority",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "due_date",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "created_at",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in_location": "path",
+          "param_type": "int",
+          "required": true,
+          "default": null,
+          "description": "Task ID"
+        }
+      ],
+      "business_logic_summary": "Fetch Task record from database or raise 404 if not found.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/tasks",
+      "method": "POST",
+      "summary": "Create new Task",
+      "description": "Create a new Task record.",
+      "operation_id": "create_task",
+      "tags": [
+        "Task"
+      ],
+      "requires_auth": true,
+      "required_roles": [
+        "user",
+        "admin"
+      ],
+      "request_schema": {
+        "name": "TaskCreate",
+        "fields": [
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "category_id",
+            "type": "int",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "title",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "description",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "priority",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "due_date",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "response_schema": {
+        "name": "TaskResponse",
+        "status_code": 201,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "category_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "title",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "description",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "priority",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "due_date",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "created_at",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [],
+      "business_logic_summary": "Validate request body, construct Task entity, and persist to database.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/tasks/{id}",
+      "method": "PUT",
+      "summary": "Update Task",
+      "description": "Update an existing Task record by ID.",
+      "operation_id": "update_task",
+      "tags": [
+        "Task"
+      ],
+      "requires_auth": true,
+      "required_roles": [
+        "user",
+        "admin"
+      ],
+      "request_schema": {
+        "name": "TaskUpdate",
+        "fields": [
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "category_id",
+            "type": "int",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "title",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "description",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "priority",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "due_date",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "response_schema": {
+        "name": "TaskResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "category_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "title",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "description",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "priority",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "due_date",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "created_at",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in_location": "path",
+          "param_type": "int",
+          "required": true,
+          "default": null,
+          "description": "Task ID"
+        }
+      ],
+      "business_logic_summary": "Verify Task exists, update provided fields, and save changes.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/tasks/{id}",
+      "method": "DELETE",
+      "summary": "Delete Task",
+      "description": "Remove a Task record from database.",
+      "operation_id": "delete_task",
+      "tags": [
+        "Task"
+      ],
+      "requires_auth": true,
+      "required_roles": [
+        "admin"
+      ],
+      "request_schema": null,
+      "response_schema": {
+        "name": "MessageResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "message",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in_location": "path",
+          "param_type": "int",
+          "required": true,
+          "default": null,
+          "description": "Task ID"
+        }
+      ],
+      "business_logic_summary": "Delete Task record from database or raise 404.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/categorys",
+      "method": "GET",
+      "summary": "List all categorys",
+      "description": "Retrieve paginated list of categorys with optional filtering and sorting.",
+      "operation_id": "list_categorys",
+      "tags": [
+        "Category"
+      ],
+      "requires_auth": true,
+      "required_roles": [
+        "user",
+        "admin"
+      ],
+      "request_schema": null,
+      "response_schema": {
+        "name": "CategoryResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "color_code",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "page",
+          "in_location": "query",
+          "param_type": "int",
+          "required": false,
+          "default": 1,
+          "description": "Page number"
+        },
+        {
+          "name": "limit",
+          "in_location": "query",
+          "param_type": "int",
+          "required": false,
+          "default": 20,
+          "description": "Items per page"
+        },
+        {
+          "name": "search",
+          "in_location": "query",
+          "param_type": "str",
+          "required": false,
+          "default": null,
+          "description": "Search keyword"
+        },
+        {
+          "name": "sort_by",
+          "in_location": "query",
+          "param_type": "str",
+          "required": false,
+          "default": "id",
+          "description": "Sort column"
+        },
+        {
+          "name": "order",
+          "in_location": "query",
+          "param_type": "str",
+          "required": false,
+          "default": "asc",
+          "description": "Sort order (asc/desc)"
+        }
+      ],
+      "business_logic_summary": "Fetch paginated categorys matching query parameters.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/categorys/{id}",
+      "method": "GET",
+      "summary": "Get Category by ID",
+      "description": "Retrieve single Category detail by identifier.",
+      "operation_id": "get_category_by_id",
+      "tags": [
+        "Category"
+      ],
+      "requires_auth": true,
+      "required_roles": [
+        "user",
+        "admin"
+      ],
+      "request_schema": null,
+      "response_schema": {
+        "name": "CategoryResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "color_code",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in_location": "path",
+          "param_type": "int",
+          "required": true,
+          "default": null,
+          "description": "Category ID"
+        }
+      ],
+      "business_logic_summary": "Fetch Category record from database or raise 404 if not found.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/categorys",
+      "method": "POST",
+      "summary": "Create new Category",
+      "description": "Create a new Category record.",
+      "operation_id": "create_category",
+      "tags": [
+        "Category"
+      ],
+      "requires_auth": true,
+      "required_roles": [
+        "user",
+        "admin"
+      ],
+      "request_schema": {
+        "name": "CategoryCreate",
+        "fields": [
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "color_code",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "response_schema": {
+        "name": "CategoryResponse",
+        "status_code": 201,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "color_code",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [],
+      "business_logic_summary": "Validate request body, construct Category entity, and persist to database.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/categorys/{id}",
+      "method": "PUT",
+      "summary": "Update Category",
+      "description": "Update an existing Category record by ID.",
+      "operation_id": "update_category",
+      "tags": [
+        "Category"
+      ],
+      "requires_auth": true,
+      "required_roles": [
+        "user",
+        "admin"
+      ],
+      "request_schema": {
+        "name": "CategoryUpdate",
+        "fields": [
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "color_code",
+            "type": "str",
+            "required": false,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "response_schema": {
+        "name": "CategoryResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          },
+          {
+            "name": "color_code",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in_location": "path",
+          "param_type": "int",
+          "required": true,
+          "default": null,
+          "description": "Category ID"
+        }
+      ],
+      "business_logic_summary": "Verify Category exists, update provided fields, and save changes.",
+      "is_file_upload": false
+    },
+    {
+      "path": "/api/categorys/{id}",
+      "method": "DELETE",
+      "summary": "Delete Category",
+      "description": "Remove a Category record from database.",
+      "operation_id": "delete_category",
+      "tags": [
+        "Category"
+      ],
+      "requires_auth": true,
+      "required_roles": [
+        "admin"
+      ],
+      "request_schema": null,
+      "response_schema": {
+        "name": "MessageResponse",
+        "status_code": 200,
+        "fields": [
+          {
+            "name": "message",
+            "type": "str",
+            "required": true,
+            "default": null,
+            "validation_rules": {}
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in_location": "path",
+          "param_type": "int",
+          "required": true,
+          "default": null,
+          "description": "Category ID"
+        }
+      ],
+      "business_logic_summary": "Delete Category record from database or raise 404.",
+      "is_file_upload": false
+    }
+  ],
+  "service_layer": [
+    {
+      "name": "UserService",
+      "entity": "User",
+      "methods": [
+        {
+          "name": "get_all_users",
+          "params": [
+            "page: int",
+            "limit: int",
+            "search: Optional[str]"
+          ],
+          "return_type": "List[User]",
+          "description": "Fetch paginated users with filters."
+        },
+        {
+          "name": "get_user_by_id",
+          "params": [
+            "id: int"
+          ],
+          "return_type": "Optional[User]",
+          "description": "Get single User by ID."
+        },
+        {
+          "name": "create_user",
+          "params": [
+            "data: UserCreate"
+          ],
+          "return_type": "User",
+          "description": "Validate and save new User."
+        },
+        {
+          "name": "update_user",
+          "params": [
+            "id: int",
+            "data: UserUpdate"
+          ],
+          "return_type": "User",
+          "description": "Update fields of existing User."
+        },
+        {
+          "name": "delete_user",
+          "params": [
+            "id: int"
+          ],
+          "return_type": "bool",
+          "description": "Delete User record."
+        }
+      ]
+    },
+    {
+      "name": "TaskService",
+      "entity": "Task",
+      "methods": [
+        {
+          "name": "get_all_tasks",
+          "params": [
+            "page: int",
+            "limit: int",
+            "search: Optional[str]"
+          ],
+          "return_type": "List[Task]",
+          "description": "Fetch paginated tasks with filters."
+        },
+        {
+          "name": "get_task_by_id",
+          "params": [
+            "id: int"
+          ],
+          "return_type": "Optional[Task]",
+          "description": "Get single Task by ID."
+        },
+        {
+          "name": "create_task",
+          "params": [
+            "data: TaskCreate"
+          ],
+          "return_type": "Task",
+          "description": "Validate and save new Task."
+        },
+        {
+          "name": "update_task",
+          "params": [
+            "id: int",
+            "data: TaskUpdate"
+          ],
+          "return_type": "Task",
+          "description": "Update fields of existing Task."
+        },
+        {
+          "name": "delete_task",
+          "params": [
+            "id: int"
+          ],
+          "return_type": "bool",
+          "description": "Delete Task record."
+        }
+      ]
+    },
+    {
+      "name": "CategoryService",
+      "entity": "Category",
+      "methods": [
+        {
+          "name": "get_all_categorys",
+          "params": [
+            "page: int",
+            "limit: int",
+            "search: Optional[str]"
+          ],
+          "return_type": "List[Category]",
+          "description": "Fetch paginated categorys with filters."
+        },
+        {
+          "name": "get_category_by_id",
+          "params": [
+            "id: int"
+          ],
+          "return_type": "Optional[Category]",
+          "description": "Get single Category by ID."
+        },
+        {
+          "name": "create_category",
+          "params": [
+            "data: CategoryCreate"
+          ],
+          "return_type": "Category",
+          "description": "Validate and save new Category."
+        },
+        {
+          "name": "update_category",
+          "params": [
+            "id: int",
+            "data: CategoryUpdate"
+          ],
+          "return_type": "Category",
+          "description": "Update fields of existing Category."
+        },
+        {
+          "name": "delete_category",
+          "params": [
+            "id: int"
+          ],
+          "return_type": "bool",
+          "description": "Delete Category record."
+        }
+      ]
+    }
+  ],
+  "repository_layer": [
+    {
+      "name": "UserRepository",
+      "entity": "User",
+      "methods": [
+        {
+          "name": "find_all",
+          "query_description": "SELECT * FROM users OFFSET :offset LIMIT :limit",
+          "return_type": "List[User]"
+        },
+        {
+          "name": "find_by_id",
+          "query_description": "SELECT * FROM users WHERE id = :id",
+          "return_type": "Optional[User]"
+        },
+        {
+          "name": "save",
+          "query_description": "INSERT INTO users ... VALUES ...",
+          "return_type": "User"
+        },
+        {
+          "name": "update",
+          "query_description": "UPDATE users SET ... WHERE id = :id",
+          "return_type": "User"
+        },
+        {
+          "name": "delete",
+          "query_description": "DELETE FROM users WHERE id = :id",
+          "return_type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "TaskRepository",
+      "entity": "Task",
+      "methods": [
+        {
+          "name": "find_all",
+          "query_description": "SELECT * FROM tasks OFFSET :offset LIMIT :limit",
+          "return_type": "List[Task]"
+        },
+        {
+          "name": "find_by_id",
+          "query_description": "SELECT * FROM tasks WHERE id = :id",
+          "return_type": "Optional[Task]"
+        },
+        {
+          "name": "save",
+          "query_description": "INSERT INTO tasks ... VALUES ...",
+          "return_type": "Task"
+        },
+        {
+          "name": "update",
+          "query_description": "UPDATE tasks SET ... WHERE id = :id",
+          "return_type": "Task"
+        },
+        {
+          "name": "delete",
+          "query_description": "DELETE FROM tasks WHERE id = :id",
+          "return_type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "CategoryRepository",
+      "entity": "Category",
+      "methods": [
+        {
+          "name": "find_all",
+          "query_description": "SELECT * FROM categorys OFFSET :offset LIMIT :limit",
+          "return_type": "List[Category]"
+        },
+        {
+          "name": "find_by_id",
+          "query_description": "SELECT * FROM categorys WHERE id = :id",
+          "return_type": "Optional[Category]"
+        },
+        {
+          "name": "save",
+          "query_description": "INSERT INTO categorys ... VALUES ...",
+          "return_type": "Category"
+        },
+        {
+          "name": "update",
+          "query_description": "UPDATE categorys SET ... WHERE id = :id",
+          "return_type": "Category"
+        },
+        {
+          "name": "delete",
+          "query_description": "DELETE FROM categorys WHERE id = :id",
+          "return_type": "bool"
+        }
+      ]
+    }
+  ],
+  "global_dependencies": [
+    "get_db",
+    "get_current_user",
+    "get_pagination_params"
+  ],
+  "error_handlers": [
+    {
+      "status_code": 404,
+      "exception_type": "HTTPException",
+      "detail": "Resource not found"
+    },
+    {
+      "status_code": 400,
+      "exception_type": "HTTPException",
+      "detail": "Bad Request / Validation error"
+    },
+    {
+      "status_code": 401,
+      "exception_type": "HTTPException",
+      "detail": "Unauthorized access"
+    },
+    {
+      "status_code": 403,
+      "exception_type": "HTTPException",
+      "detail": "Forbidden operation"
+    },
+    {
+      "status_code": 500,
+      "exception_type": "HTTPException",
+      "detail": "Internal server error"
+    }
+  ]
+}

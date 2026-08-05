@@ -1,0 +1,370 @@
+{
+  "project_name": "TaskFlow",
+  "database_system": "PostgreSQL",
+  "tables": [
+    {
+      "table_name": "users",
+      "model_name": "User",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "INTEGER",
+          "is_primary_key": true,
+          "is_nullable": false,
+          "is_unique": false,
+          "default_value": "autoincrement",
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "username",
+          "data_type": "VARCHAR(255)",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": true,
+          "default_value": null,
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "email",
+          "data_type": "VARCHAR(255)",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": true,
+          "default_value": null,
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "hashed_password",
+          "data_type": "VARCHAR(255)",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": null,
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "created_at",
+          "data_type": "TIMESTAMP WITH TIME ZONE",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": "func.now()",
+          "foreign_key": null,
+          "check_constraint": null
+        }
+      ],
+      "relationships": [
+        {
+          "relationship_name": "tasks",
+          "type": "one-to-many",
+          "target_model": "Task",
+          "back_populates": "user",
+          "secondary_table": null,
+          "cascade": "all, delete-orphan"
+        },
+        {
+          "relationship_name": "categorys",
+          "type": "one-to-many",
+          "target_model": "Category",
+          "back_populates": "user",
+          "secondary_table": null,
+          "cascade": "all, delete-orphan"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_users_id",
+          "table_name": "users",
+          "columns": [
+            "id"
+          ],
+          "is_unique": true,
+          "index_type": "btree"
+        },
+        {
+          "name": "idx_users_username",
+          "table_name": "users",
+          "columns": [
+            "username"
+          ],
+          "is_unique": true,
+          "index_type": "btree"
+        },
+        {
+          "name": "idx_users_email",
+          "table_name": "users",
+          "columns": [
+            "email"
+          ],
+          "is_unique": true,
+          "index_type": "btree"
+        }
+      ],
+      "is_association_table": false
+    },
+    {
+      "table_name": "tasks",
+      "model_name": "Task",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "INTEGER",
+          "is_primary_key": true,
+          "is_nullable": false,
+          "is_unique": false,
+          "default_value": "autoincrement",
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "user_id",
+          "data_type": "INTEGER",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": null,
+          "foreign_key": {
+            "target_table": "users",
+            "target_column": "id",
+            "on_delete": "CASCADE",
+            "on_update": "CASCADE"
+          },
+          "check_constraint": null
+        },
+        {
+          "name": "category_id",
+          "data_type": "INTEGER",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": null,
+          "foreign_key": {
+            "target_table": "categorys",
+            "target_column": "id",
+            "on_delete": "CASCADE",
+            "on_update": "CASCADE"
+          },
+          "check_constraint": null
+        },
+        {
+          "name": "title",
+          "data_type": "VARCHAR(255)",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": null,
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "description",
+          "data_type": "TEXT",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": null,
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "status",
+          "data_type": "VARCHAR(255)",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": null,
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "priority",
+          "data_type": "VARCHAR(255)",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": null,
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "due_date",
+          "data_type": "TIMESTAMP WITH TIME ZONE",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": "func.now()",
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "created_at",
+          "data_type": "TIMESTAMP WITH TIME ZONE",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": "func.now()",
+          "foreign_key": null,
+          "check_constraint": null
+        }
+      ],
+      "relationships": [
+        {
+          "relationship_name": "user",
+          "type": "many-to-one",
+          "target_model": "User",
+          "back_populates": "tasks",
+          "secondary_table": null,
+          "cascade": null
+        },
+        {
+          "relationship_name": "category",
+          "type": "many-to-one",
+          "target_model": "Category",
+          "back_populates": "tasks",
+          "secondary_table": null,
+          "cascade": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_tasks_id",
+          "table_name": "tasks",
+          "columns": [
+            "id"
+          ],
+          "is_unique": true,
+          "index_type": "btree"
+        },
+        {
+          "name": "idx_tasks_user_id",
+          "table_name": "tasks",
+          "columns": [
+            "user_id"
+          ],
+          "is_unique": false,
+          "index_type": "btree"
+        },
+        {
+          "name": "idx_tasks_category_id",
+          "table_name": "tasks",
+          "columns": [
+            "category_id"
+          ],
+          "is_unique": false,
+          "index_type": "btree"
+        }
+      ],
+      "is_association_table": false
+    },
+    {
+      "table_name": "categorys",
+      "model_name": "Category",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "INTEGER",
+          "is_primary_key": true,
+          "is_nullable": false,
+          "is_unique": false,
+          "default_value": "autoincrement",
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "user_id",
+          "data_type": "INTEGER",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": null,
+          "foreign_key": {
+            "target_table": "users",
+            "target_column": "id",
+            "on_delete": "CASCADE",
+            "on_update": "CASCADE"
+          },
+          "check_constraint": null
+        },
+        {
+          "name": "name",
+          "data_type": "VARCHAR(255)",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": null,
+          "foreign_key": null,
+          "check_constraint": null
+        },
+        {
+          "name": "color_code",
+          "data_type": "VARCHAR(255)",
+          "is_primary_key": false,
+          "is_nullable": true,
+          "is_unique": false,
+          "default_value": null,
+          "foreign_key": null,
+          "check_constraint": null
+        }
+      ],
+      "relationships": [
+        {
+          "relationship_name": "user",
+          "type": "many-to-one",
+          "target_model": "User",
+          "back_populates": "categorys",
+          "secondary_table": null,
+          "cascade": null
+        },
+        {
+          "relationship_name": "tasks",
+          "type": "one-to-many",
+          "target_model": "Task",
+          "back_populates": "category",
+          "secondary_table": null,
+          "cascade": "all, delete-orphan"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_categorys_id",
+          "table_name": "categorys",
+          "columns": [
+            "id"
+          ],
+          "is_unique": true,
+          "index_type": "btree"
+        },
+        {
+          "name": "idx_categorys_user_id",
+          "table_name": "categorys",
+          "columns": [
+            "user_id"
+          ],
+          "is_unique": false,
+          "index_type": "btree"
+        }
+      ],
+      "is_association_table": false
+    }
+  ],
+  "sqlalchemy_models_code": "from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Index, func\nfrom sqlalchemy.orm import declarative_base, relationship\nfrom datetime import datetime\n\nBase = declarative_base()\n\nclass User(Base):\n    __tablename__ = 'users'\n\n    id = Column(Integer, primary_key=True, index=True)\n    username = Column(String(255), unique=True)\n    email = Column(String(255), unique=True)\n    hashed_password = Column(String(255))\n    created_at = Column(DateTime(timezone=True), default=func.now())\n    tasks = relationship('Task', back_populates='user', cascade='all, delete-orphan')\n    categorys = relationship('Category', back_populates='user', cascade='all, delete-orphan')\n\nclass Task(Base):\n    __tablename__ = 'tasks'\n\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))\n    category_id = Column(Integer, ForeignKey('categorys.id', ondelete='CASCADE'))\n    title = Column(String(255))\n    description = Column(Text)\n    status = Column(String(255))\n    priority = Column(String(255))\n    due_date = Column(DateTime(timezone=True), default=func.now())\n    created_at = Column(DateTime(timezone=True), default=func.now())\n\nclass Category(Base):\n    __tablename__ = 'categorys'\n\n    id = Column(Integer, primary_key=True, index=True)\n    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))\n    name = Column(String(255))\n    color_code = Column(String(255))\n    tasks = relationship('Task', back_populates='category', cascade='all, delete-orphan')\n",
+  "alembic_metadata": {
+    "revision_id": "0001_initial_schema",
+    "down_revision": null,
+    "description": "Initial schema migration for TaskFlow",
+    "upgrade_instructions": [
+      "op.create_table('users', sa.Column('id', sa.Integer(), nullable=False), sa.Column('username', sa.String(), nullable=True), sa.Column('email', sa.String(), nullable=True), sa.Column('hashed_password', sa.String(), nullable=True), sa.Column('created_at', sa.DateTime(), nullable=True))",
+      "op.create_table('tasks', sa.Column('id', sa.Integer(), nullable=False), sa.Column('user_id', sa.Integer(), nullable=True), sa.Column('category_id', sa.Integer(), nullable=True), sa.Column('title', sa.String(), nullable=True), sa.Column('description', sa.Text(), nullable=True), sa.Column('status', sa.String(), nullable=True), sa.Column('priority', sa.String(), nullable=True), sa.Column('due_date', sa.DateTime(), nullable=True), sa.Column('created_at', sa.DateTime(), nullable=True))",
+      "op.create_table('categorys', sa.Column('id', sa.Integer(), nullable=False), sa.Column('user_id', sa.Integer(), nullable=True), sa.Column('name', sa.String(), nullable=True), sa.Column('color_code', sa.String(), nullable=True))"
+    ],
+    "downgrade_instructions": [
+      "op.drop_table('users')",
+      "op.drop_table('tasks')",
+      "op.drop_table('categorys')"
+    ]
+  }
+}
