@@ -12,7 +12,9 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 from backend.agents.base_agent import BaseAgent
-from backend.schemas.qa_schema import QAOutput, QAErrorDetail
+from backend.schemas.qa_schema import QAOutput, QAError
+from backend.services.error_mapper import ErrorMapper
+from backend.services.qa_summary import generate_qa_summary
 
 
 class QAAgent(BaseAgent[QAOutput]):
@@ -39,6 +41,8 @@ class QAAgent(BaseAgent[QAOutput]):
         self.db_data: Optional[Dict[str, Any]] = None
         self.auth_data: Optional[Dict[str, Any]] = None
 
+        self.error_mapper = ErrorMapper(id_prefix="QA")
+
     def load_inputs(self) -> None:
         """Load and parse specification inputs if present."""
         if self.pm_output_path.is_file():
@@ -57,9 +61,9 @@ class QAAgent(BaseAgent[QAOutput]):
             self.auth_data = self.read_json_file(str(self.auth_output_path))
             self.inputs["auth"] = self.auth_data
 
-    def check_python_syntax(self) -> List[QAErrorDetail]:
+    def check_python_syntax(self) -> List[QAError]:
         """Verify Python syntax across all backend Python source files."""
-        errors: List[QAErrorDetail] = []
+        errors: List[QAError] = []
         backend_dir = self.project_root / "backend"
         
         if not backend_dir.exists():
@@ -71,29 +75,29 @@ class QAAgent(BaseAgent[QAOutput]):
                 ast.parse(content, filename=str(py_file))
             except SyntaxError as e:
                 errors.append(
-                    QAErrorDetail(
-                        test_name=f"test_syntax_{py_file.name}",
-                        error_type="SyntaxError",
+                    self.error_mapper.map_error(
+                        error=e,
                         message=f"Syntax error at line {e.lineno}, col {e.offset}: {e.msg}",
-                        affected_component="backend",
-                        suggested_fix=f"Fix syntax error in '{py_file.relative_to(self.project_root)}' around line {e.lineno}."
+                        component="backend",
+                        test_name=f"test_syntax_{py_file.name}",
+                        suggestion=f"Fix syntax error in '{py_file.relative_to(self.project_root)}' around line {e.lineno}."
                     )
                 )
             except Exception as e:
                 errors.append(
-                    QAErrorDetail(
-                        test_name=f"test_read_{py_file.name}",
-                        error_type="SyntaxError",
+                    self.error_mapper.map_error(
+                        error="SyntaxError",
                         message=f"Failed to read file: {str(e)}",
-                        affected_component="backend",
-                        suggested_fix=f"Ensure '{py_file.relative_to(self.project_root)}' has valid UTF-8 encoding."
+                        component="backend",
+                        test_name=f"test_read_{py_file.name}",
+                        suggestion=f"Ensure '{py_file.relative_to(self.project_root)}' has valid UTF-8 encoding."
                     )
                 )
         return errors
 
-    def check_backend_imports(self) -> List[QAErrorDetail]:
+    def check_backend_imports(self) -> List[QAError]:
         """Verify backend module importability and package structure."""
-        errors: List[QAErrorDetail] = []
+        errors: List[QAError] = []
         modules_to_test = [
             ("backend.exceptions", "backend"),
             ("backend.schemas", "backend"),
@@ -105,29 +109,29 @@ class QAAgent(BaseAgent[QAOutput]):
                 importlib.import_module(mod_name)
             except ImportError as e:
                 errors.append(
-                    QAErrorDetail(
-                        test_name=f"test_import_{mod_name.replace('.', '_')}",
-                        error_type="ImportError",
+                    self.error_mapper.map_error(
+                        error=e,
                         message=f"Module import failed: {str(e)}",
-                        affected_component=component,
-                        suggested_fix=f"Check module dependencies and '__init__.py' files in {mod_name}."
+                        component=component,
+                        test_name=f"test_import_{mod_name.replace('.', '_')}",
+                        suggestion=f"Check module dependencies and '__init__.py' files in {mod_name}."
                     )
                 )
             except Exception as e:
                 errors.append(
-                    QAErrorDetail(
-                        test_name=f"test_import_{mod_name.replace('.', '_')}",
-                        error_type="ImportError",
+                    self.error_mapper.map_error(
+                        error="ImportError",
                         message=f"Unexpected error loading module {mod_name}: {str(e)}",
-                        affected_component=component,
-                        suggested_fix=f"Verify internal references in module '{mod_name}'."
+                        component=component,
+                        test_name=f"test_import_{mod_name.replace('.', '_')}",
+                        suggestion=f"Verify internal references in module '{mod_name}'."
                     )
                 )
         return errors
 
-    def check_api_endpoints(self) -> List[QAErrorDetail]:
+    def check_api_endpoints(self) -> List[QAError]:
         """Verify API endpoints definition and FastAPI router instantiation."""
-        errors: List[QAErrorDetail] = []
+        errors: List[QAError] = []
         try:
             from backend.main import app
             routes = [route.path for route in app.routes]
@@ -135,29 +139,29 @@ class QAAgent(BaseAgent[QAOutput]):
             for path in required_paths:
                 if path not in routes:
                     errors.append(
-                        QAErrorDetail(
-                            test_name=f"test_endpoint_{path.strip('/') or 'root'}",
-                            error_type="EndpointError",
+                        self.error_mapper.map_error(
+                            error="EndpointError",
                             message=f"Required standard route '{path}' missing from FastAPI app.",
-                            affected_component="backend",
-                            suggested_fix=f"Register route '{path}' in backend/main.py."
+                            component="backend",
+                            test_name=f"test_endpoint_{path.strip('/') or 'root'}",
+                            suggestion=f"Register route '{path}' in backend/main.py."
                         )
                     )
         except Exception as e:
             errors.append(
-                QAErrorDetail(
-                    test_name="test_fastapi_app_instantiation",
-                    error_type="EndpointError",
+                self.error_mapper.map_error(
+                    error="EndpointError",
                     message=f"Failed to instantiate FastAPI app from backend.main: {str(e)}",
-                    affected_component="backend",
-                    suggested_fix="Ensure backend/main.py exports valid FastAPI 'app' instance."
+                    component="backend",
+                    test_name="test_fastapi_app_instantiation",
+                    suggestion="Ensure backend/main.py exports valid FastAPI 'app' instance."
                 )
             )
         return errors
 
-    def check_database_connection(self) -> List[QAErrorDetail]:
+    def check_database_connection(self) -> List[QAError]:
         """Verify Database connectivity (SQLite / PostgreSQL)."""
-        errors: List[QAErrorDetail] = []
+        errors: List[QAError] = []
         db_path = self.project_root / "backend" / "tasks.db"
         try:
             conn = sqlite3.connect(str(db_path))
@@ -166,32 +170,31 @@ class QAAgent(BaseAgent[QAOutput]):
             conn.close()
         except Exception as e:
             errors.append(
-                QAErrorDetail(
-                    test_name="test_database_connection",
-                    error_type="DatabaseError",
+                self.error_mapper.map_error(
+                    error=e,
                     message=f"Database connection or query failed: {str(e)}",
-                    affected_component="database",
-                    suggested_fix="Check SQLite file permissions or database connection string."
+                    component="database",
+                    test_name="test_database_connection",
+                    suggestion="Check SQLite file permissions or database connection string."
                 )
             )
         return errors
 
-    def check_frontend_build(self) -> List[QAErrorDetail]:
+    def check_frontend_build(self) -> List[QAError]:
         """Verify frontend project structure, package.json, and build setup."""
-        errors: List[QAErrorDetail] = []
+        errors: List[QAError] = []
         frontend_dir = self.project_root / "frontend"
         
-        # If frontend directory exists, validate package.json
         if frontend_dir.exists():
             pkg_json = frontend_dir / "package.json"
             if not pkg_json.is_file():
                 errors.append(
-                    QAErrorDetail(
-                        test_name="test_frontend_package_json",
-                        error_type="FrontendBuildError",
+                    self.error_mapper.map_error(
+                        error="FrontendBuildError",
                         message="Missing 'package.json' in frontend directory.",
-                        affected_component="frontend",
-                        suggested_fix="Initialize frontend node project with valid package.json."
+                        component="frontend",
+                        test_name="test_frontend_package_json",
+                        suggestion="Initialize frontend node project with valid package.json."
                     )
                 )
             else:
@@ -199,51 +202,50 @@ class QAAgent(BaseAgent[QAOutput]):
                     data = json.loads(pkg_json.read_text(encoding="utf-8"))
                     if "scripts" not in data or "build" not in data.get("scripts", {}):
                         errors.append(
-                            QAErrorDetail(
-                                test_name="test_frontend_build_script",
-                                error_type="FrontendBuildError",
+                            self.error_mapper.map_error(
+                                error="FrontendBuildError",
                                 message="Missing 'build' script in package.json.",
-                                affected_component="frontend",
-                                suggested_fix="Add build script e.g. 'vite build' or 'react-scripts build' to package.json."
+                                component="frontend",
+                                test_name="test_frontend_build_script",
+                                suggestion="Add build script e.g. 'vite build' or 'react-scripts build' to package.json."
                             )
                         )
                 except Exception as e:
                     errors.append(
-                        QAErrorDetail(
-                            test_name="test_frontend_package_parse",
-                            error_type="FrontendBuildError",
+                        self.error_mapper.map_error(
+                            error="FrontendBuildError",
                             message=f"Failed to parse frontend package.json: {str(e)}",
-                            affected_component="frontend",
-                            suggested_fix="Ensure frontend package.json contains valid JSON format."
+                            component="frontend",
+                            test_name="test_frontend_package_parse",
+                            suggestion="Ensure frontend package.json contains valid JSON format."
                         )
                     )
         return errors
 
-    def check_missing_dependencies(self) -> List[QAErrorDetail]:
+    def check_missing_dependencies(self) -> List[QAError]:
         """Verify critical Python dependencies are installed in runtime environment."""
-        errors: List[QAErrorDetail] = []
+        errors: List[QAError] = []
         required_pkgs = ["fastapi", "pydantic", "uvicorn", "pytest", "dotenv"]
         
         for pkg in required_pkgs:
             try:
                 importlib.import_module(pkg)
-            except ImportError:
+            except ImportError as e:
                 errors.append(
-                    QAErrorDetail(
-                        test_name=f"test_dependency_{pkg}",
-                        error_type="DependencyError",
+                    self.error_mapper.map_error(
+                        error=e,
                         message=f"Required package '{pkg}' is not installed.",
-                        affected_component="backend",
-                        suggested_fix=f"Install missing dependency via 'pip install {pkg}'."
+                        component="backend",
+                        test_name=f"test_dependency_{pkg}",
+                        suggestion=f"Install missing dependency via 'pip install {pkg}'."
                     )
                 )
         return errors
 
-    def check_configuration_errors(self) -> List[QAErrorDetail]:
+    def check_configuration_errors(self) -> List[QAError]:
         """Check for configuration issues and security compliance (e.g. no exposed secrets)."""
-        errors: List[QAErrorDetail] = []
+        errors: List[QAError] = []
         
-        # Security check: verify secrets aren't hardcoded in outputs
         for output_file in [self.pm_output_path, self.backend_output_path, self.db_output_path, self.auth_output_path]:
             if output_file.is_file():
                 try:
@@ -252,12 +254,12 @@ class QAAgent(BaseAgent[QAOutput]):
                     for pat in sensitive_patterns:
                         if pat in content:
                             errors.append(
-                                QAErrorDetail(
-                                    test_name=f"test_secret_leak_{output_file.name}",
-                                    error_type="ConfigurationError",
+                                self.error_mapper.map_error(
+                                    error="ConfigurationError",
                                     message=f"Potential hardcoded secret pattern '{pat}' detected in '{output_file.name}'.",
-                                    affected_component="auth",
-                                    suggested_fix=f"Remove secret credential pattern from '{output_file.name}' and use environment variables."
+                                    component="auth",
+                                    test_name=f"test_secret_leak_{output_file.name}",
+                                    suggestion=f"Remove secret credential pattern from '{output_file.name}' and use environment variables."
                                 )
                             )
                 except Exception:
@@ -268,48 +270,50 @@ class QAAgent(BaseAgent[QAOutput]):
     def generate(self) -> Dict[str, Any]:
         """Run all test suites and compile structured QA Output dictionary."""
         self.logger.info("Executing QA inspection suite across generated components...")
+        self.error_mapper.reset_counter()
         
-        all_errors: List[QAErrorDetail] = []
+        all_errors: List[QAError] = []
         
         # 1. Syntax Check
-        syntax_errors = self.check_python_syntax()
-        all_errors.extend(syntax_errors)
+        all_errors.extend(self.check_python_syntax())
         
         # 2. Imports Check
-        import_errors = self.check_backend_imports()
-        all_errors.extend(import_errors)
+        all_errors.extend(self.check_backend_imports())
 
         # 3. API Endpoints Check
-        endpoint_errors = self.check_api_endpoints()
-        all_errors.extend(endpoint_errors)
+        all_errors.extend(self.check_api_endpoints())
 
         # 4. DB Connection Check
-        db_errors = self.check_database_connection()
-        all_errors.extend(db_errors)
+        all_errors.extend(self.check_database_connection())
 
         # 5. Frontend Build Check
-        frontend_errors = self.check_frontend_build()
-        all_errors.extend(frontend_errors)
+        all_errors.extend(self.check_frontend_build())
 
         # 6. Missing Dependencies Check
-        dep_errors = self.check_missing_dependencies()
-        all_errors.extend(dep_errors)
+        all_errors.extend(self.check_missing_dependencies())
 
         # 7. Configuration Errors Check
-        config_errors = self.check_configuration_errors()
-        all_errors.extend(config_errors)
+        all_errors.extend(self.check_configuration_errors())
 
         # Count metrics
-        # Base suite has 10 standard check points across all categories
         total_checks = 10
         failed_count = len(all_errors)
         passed_count = max(0, total_checks - failed_count)
         
         is_passed = failed_count == 0
+        critical_count = sum(1 for err in all_errors if err.severity == "CRITICAL")
+        warning_count = sum(1 for err in all_errors if err.severity in ("HIGH", "MEDIUM", "LOW"))
+        score = round(max(0.0, (passed_count / max(total_checks, 1)) * 100.0), 2)
+        deployment_ready = is_passed and critical_count == 0
+        
+        if deployment_ready:
+            next_step = "Proceed to deployment"
+        else:
+            next_step = f"Resolve {failed_count} error(s) across affected components."
+
         primary_affected_component: Optional[str] = None
         if not is_passed and all_errors:
-            # Pick primary affected component from first detected error
-            primary_affected_component = all_errors[0].affected_component
+            primary_affected_component = all_errors[0].component
 
         qa_output = {
             "status": "passed" if is_passed else "failed",
@@ -317,10 +321,19 @@ class QAAgent(BaseAgent[QAOutput]):
             "tests_passed": passed_count if is_passed else max(0, total_checks - failed_count),
             "tests_failed": failed_count,
             "errors": [err.model_dump() for err in all_errors],
+            "critical_errors": critical_count,
+            "warnings": warning_count,
+            "score": score,
+            "deployment_ready": deployment_ready,
+            "next_step": next_step,
             "affected_component": primary_affected_component,
-            "fix_required": not is_passed,
+            "fix_required": not deployment_ready,
             "execution_timestamp": datetime.now().isoformat()
         }
+
+        # Generate qa_summary.txt file
+        summary_path = self.project_root / "outputs" / "qa_summary.txt"
+        generate_qa_summary(qa_output, output_path=str(summary_path))
 
         return qa_output
 
