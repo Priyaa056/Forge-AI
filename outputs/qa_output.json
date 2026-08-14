@@ -4,7 +4,12 @@
   "tests_passed": 10,
   "tests_failed": 0,
   "errors": [],
+  "critical_errors": 0,
+  "warnings": 0,
+  "score": 100.0,
+  "deployment_ready": true,
+  "next_step": "Proceed to deployment",
   "affected_component": null,
   "fix_required": false,
-  "execution_timestamp": "2026-08-05T12:43:29.893228"
+  "execution_timestamp": "2026-08-14T11:49:13.675508"
 }
