@@ -77,14 +77,13 @@ class DeployAgent(BaseAgent[DeployOutput]):
                     )
                 )
             except Exception as e:
-                # If local server is not running live during test phase, simulate target check status
                 results.append(
                     HealthCheckResult(
                         endpoint=ep,
-                        status_code=200,
-                        status="healthy",
-                        response_time_ms=5.0,
-                        message=f"Health check endpoint '{ep}' configured and verified."
+                        status_code=0,
+                        status="unhealthy",
+                        response_time_ms=0.0,
+                        message=f"Endpoint '{ep}' unreachable: {str(e)}"
                     )
                 )
         return results
@@ -133,12 +132,13 @@ class DeployAgent(BaseAgent[DeployOutput]):
                 "postgres": 5432
             }
         )
-        deploy_logs.append(f"Configured Docker images: {docker_config.backend_image}, {docker_config.frontend_image}")
+        deploy_logs.append(f"Packaging completed: Docker images configured ({docker_config.backend_image}, {docker_config.frontend_image})")
 
         # 3. Environment & Deployment Target Resolution
         env = os.getenv("ENVIRONMENT", "development")
         base_url = os.getenv("LIVE_URL", f"http://localhost:{backend_port}")
-        deploy_logs.append(f"Target deployment environment: {env}, base_url: {base_url}")
+        deploy_logs.append(f"Deployment preparation completed for environment '{env}'. Target URL: {base_url}")
+        deploy_logs.append("Cloud deployment integration is pending external cloud provider connection.")
 
         # 4. Perform Health Check Verification
         health_results = self.run_health_checks(base_url)

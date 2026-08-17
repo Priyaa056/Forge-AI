@@ -16,25 +16,26 @@
   "health_checks": [
     {
       "endpoint": "/",
-      "status_code": 200,
-      "status": "healthy",
-      "response_time_ms": 5.0,
-      "message": "Health check endpoint '/' configured and verified."
+      "status_code": 0,
+      "status": "unhealthy",
+      "response_time_ms": 0.0,
+      "message": "Endpoint '/' unreachable: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
     },
     {
       "endpoint": "/health",
-      "status_code": 200,
-      "status": "healthy",
-      "response_time_ms": 5.0,
-      "message": "Health check endpoint '/health' configured and verified."
+      "status_code": 0,
+      "status": "unhealthy",
+      "response_time_ms": 0.0,
+      "message": "Endpoint '/health' unreachable: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
     }
   ],
-  "deployment_timestamp": "2026-08-05T12:43:56.071526",
+  "deployment_timestamp": "2026-08-17T17:46:37.954819",
   "logs": [
     "DeployAgent started execution.",
     "Loaded QA report: status='passed', fix_required=False",
-    "Configured Docker images: taskflow-backend:latest, taskflow-frontend:latest",
-    "Target deployment environment: development, base_url: http://localhost:8000",
+    "Packaging completed: Docker images configured (taskflow-backend:latest, taskflow-frontend:latest)",
+    "Deployment preparation completed for environment 'development'. Target URL: http://localhost:8000",
+    "Cloud deployment integration is pending external cloud provider connection.",
     "Completed 2 health check inspections."
   ],
   "affected_component": null

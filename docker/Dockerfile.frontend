@@ -10,11 +10,16 @@ RUN npm ci || npm install
 
 COPY frontend/ ./
 RUN npm run build || echo "No build script configured, using static assets"
+RUN mkdir -p /app/out && \
+    if [ -d "/app/dist" ]; then cp -r /app/dist/* /app/out/; \
+    elif [ -d "/app/build" ]; then cp -r /app/build/* /app/out/; \
+    elif [ -d "/app/public" ]; then cp -r /app/public/* /app/out/; \
+    fi
 
 # Stage 2: Nginx Web Server Runner
 FROM nginx:alpine as runner
 
-COPY --from=builder /app/dist /usr/share/nginx/html || COPY --from=builder /app/build /usr/share/nginx/html || true
+COPY --from=builder /app/out /usr/share/nginx/html
 
 EXPOSE 80
 

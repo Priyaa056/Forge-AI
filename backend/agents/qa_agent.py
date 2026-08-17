@@ -162,22 +162,29 @@ class QAAgent(BaseAgent[QAOutput]):
     def check_database_connection(self) -> List[QAError]:
         """Verify Database connectivity (SQLite / PostgreSQL)."""
         errors: List[QAError] = []
-        db_path = self.project_root / "backend" / "tasks.db"
-        try:
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            conn.close()
-        except Exception as e:
-            errors.append(
-                self.error_mapper.map_error(
-                    error=e,
-                    message=f"Database connection or query failed: {str(e)}",
-                    component="database",
-                    test_name="test_database_connection",
-                    suggestion="Check SQLite file permissions or database connection string."
+        backend_dir = self.project_root / "backend"
+        db_files = list(backend_dir.glob("*.db")) if backend_dir.exists() else []
+        if not db_files and backend_dir.exists():
+            db_files = [backend_dir / "tasks.db"]
+
+        for db_path in db_files:
+            if not db_path.exists() and len(db_files) > 1:
+                continue
+            try:
+                conn = sqlite3.connect(str(db_path))
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                conn.close()
+            except Exception as e:
+                errors.append(
+                    self.error_mapper.map_error(
+                        error=e,
+                        message=f"Database connection or query failed: {str(e)}",
+                        component="database",
+                        test_name="test_database_connection",
+                        suggestion="Check SQLite file permissions or database connection string."
+                    )
                 )
-            )
         return errors
 
     def check_frontend_build(self) -> List[QAError]:

@@ -69,3 +69,28 @@ def test_deploy_agent_aborts_on_qa_failure(tmp_path):
     assert result.live_url is None
     assert result.affected_component == "backend"
     assert "Deployment aborted: QA Agent reported test failures." in result.logs
+
+
+def test_deploy_agent_docker_config_spec(tmp_path):
+    """Test Deploy Agent generation of correct Docker packaging specifications."""
+    agent = DeployAgent(output_filepath=str(tmp_path / "deploy_output.json"))
+    result = agent.run()
+
+    assert result.docker_config is not None
+    assert result.docker_config.compose_file == "docker-compose.yml"
+    assert result.docker_config.exposed_ports["backend"] == 8000
+    assert result.docker_config.exposed_ports["frontend"] == 3000
+    assert result.docker_config.exposed_ports["postgres"] == 5432
+
+
+def test_deploy_agent_truthful_health_check_unreachable():
+    """Test run_health_checks reports status 'unhealthy' when endpoint is unreachable."""
+    agent = DeployAgent()
+    results = agent.run_health_checks("http://127.0.0.1:59999")  # Unused port
+
+    assert len(results) == 2
+    for hc in results:
+        assert hc.status == "unhealthy"
+        assert hc.status_code in [0, 500, 502, 503, 504]
+        assert "unreachable" in hc.message.lower() or "error" in hc.message.lower() or "refused" in hc.message.lower()
+

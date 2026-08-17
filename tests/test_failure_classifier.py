@@ -47,11 +47,14 @@ def test_all_supported_categories_agent_mapping():
         "ImportError": ("Backend Agent", "BackendAgent"),
         "SyntaxError": ("Backend Agent", "BackendAgent"),
         "DependencyError": ("Backend Agent", "BackendAgent"),
-        "DatabaseError": ("Database Agent", "DatabaseAgent"),
+        "DatabaseError": ("DB Agent", "DBAgent"),
         "APIError": ("Backend Agent", "BackendAgent"),
         "BuildError": ("UI Agent", "UIAgent"),
         "ConfigurationError": ("PM Agent", "PMAgent"),
         "AuthenticationError": ("Auth Agent", "AuthAgent"),
+        "IntegrationError": ("QA Agent", "QAAgent"),
+        "DeploymentError": ("Deploy Agent", "DeployAgent"),
+        "SecurityError": ("Auth Agent", "AuthAgent"),
         "UnknownError": ("QA Agent", "QAAgent"),
     }
 
@@ -65,8 +68,11 @@ def test_severity_assignments():
     assert FailureClassifier.get_severity("SyntaxError") == "CRITICAL"
     assert FailureClassifier.get_severity("DatabaseError") == "CRITICAL"
     assert FailureClassifier.get_severity("AuthenticationError") == "CRITICAL"
+    assert FailureClassifier.get_severity("SecurityError") == "CRITICAL"
     assert FailureClassifier.get_severity("ImportError") == "HIGH"
     assert FailureClassifier.get_severity("BuildError") == "HIGH"
+    assert FailureClassifier.get_severity("IntegrationError") == "HIGH"
+    assert FailureClassifier.get_severity("DeploymentError") == "HIGH"
     assert FailureClassifier.get_severity("ConfigurationError") == "MEDIUM"
     assert FailureClassifier.get_severity("UnknownError") == "LOW"
 
@@ -78,5 +84,6 @@ def test_database_error_detection():
 
     assert res.category == "DatabaseError"
     assert res.severity == "CRITICAL"
-    assert res.agent_class == "DatabaseAgent"
+    assert res.agent_class == "DBAgent"
     assert res.component == "database"
+

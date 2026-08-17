@@ -39,6 +39,9 @@ class FailureClassifier:
         "BuildError",
         "ConfigurationError",
         "AuthenticationError",
+        "IntegrationError",
+        "DeploymentError",
+        "SecurityError",
         "UnknownError",
         # Legacy Aliases
         "FrontendBuildError",
@@ -52,13 +55,16 @@ class FailureClassifier:
         "ImportError": "Backend Agent",
         "SyntaxError": "Backend Agent",
         "DependencyError": "Backend Agent",
-        "DatabaseError": "Database Agent",
+        "DatabaseError": "DB Agent",
         "APIError": "Backend Agent",
         "EndpointError": "Backend Agent",
         "BuildError": "UI Agent",
         "FrontendBuildError": "UI Agent",
         "ConfigurationError": "PM Agent",
         "AuthenticationError": "Auth Agent",
+        "IntegrationError": "QA Agent",
+        "DeploymentError": "Deploy Agent",
+        "SecurityError": "Auth Agent",
         "UnknownError": "QA Agent",
     }
 
@@ -67,13 +73,16 @@ class FailureClassifier:
         "ImportError": "BackendAgent",
         "SyntaxError": "BackendAgent",
         "DependencyError": "BackendAgent",
-        "DatabaseError": "DatabaseAgent",
+        "DatabaseError": "DBAgent",
         "APIError": "BackendAgent",
         "EndpointError": "BackendAgent",
         "BuildError": "UIAgent",
         "FrontendBuildError": "UIAgent",
         "ConfigurationError": "PMAgent",
         "AuthenticationError": "AuthAgent",
+        "IntegrationError": "QAAgent",
+        "DeploymentError": "DeployAgent",
+        "SecurityError": "AuthAgent",
         "UnknownError": "QAAgent",
     }
 
@@ -82,12 +91,15 @@ class FailureClassifier:
         "SyntaxError": "CRITICAL",
         "DatabaseError": "CRITICAL",
         "AuthenticationError": "CRITICAL",
+        "SecurityError": "CRITICAL",
         "ImportError": "HIGH",
         "BuildError": "HIGH",
         "FrontendBuildError": "HIGH",
         "DependencyError": "HIGH",
         "APIError": "HIGH",
         "EndpointError": "HIGH",
+        "IntegrationError": "HIGH",
+        "DeploymentError": "HIGH",
         "ConfigurationError": "MEDIUM",
         "UnknownError": "LOW",
     }
@@ -104,6 +116,9 @@ class FailureClassifier:
         "FrontendBuildError": "frontend",
         "ConfigurationError": "pm",
         "AuthenticationError": "auth",
+        "IntegrationError": "integration",
+        "DeploymentError": "deployment",
+        "SecurityError": "auth",
         "UnknownError": "qa",
     }
 
@@ -119,6 +134,9 @@ class FailureClassifier:
         "FrontendBuildError": "Check package.json build scripts and frontend build setup.",
         "ConfigurationError": "Review configuration settings and environment variables.",
         "AuthenticationError": "Check authentication credentials, tokens, and security rules.",
+        "IntegrationError": "Verify inter-service API contracts and communication pipelines.",
+        "DeploymentError": "Check Docker configuration, container runtime logs, and deployment specs.",
+        "SecurityError": "Review security permissions, credentials, and encryption settings.",
         "UnknownError": "Inspect stack trace and debug unexpected failure.",
     }
 
@@ -145,8 +163,14 @@ class FailureClassifier:
                 return "FrontendBuildError"
             if "build" in err_lower or "vite" in err_lower or "webpack" in err_lower:
                 return "BuildError"
+            if "security" in err_lower:
+                return "SecurityError"
             if "auth" in err_lower or "jwt" in err_lower or "token" in err_lower or "permission" in err_lower:
                 return "AuthenticationError"
+            if "deploy" in err_lower or "docker" in err_lower:
+                return "DeploymentError"
+            if "integration" in err_lower:
+                return "IntegrationError"
             if "config" in err_lower or "secret" in err_lower or "env" in err_lower:
                 return "ConfigurationError"
             return "UnknownError"
