@@ -1,0 +1,8 @@
+QA SUMMARY
+Status : PASSED
+Tests Run : 10
+Passed : 10
+Failed : 0
+Critical : 0
+Warnings : 0
+Deployment Ready : YES

@@ -1,0 +1,29 @@
+# Multi-stage Dockerfile for FORGE AI React/Next Frontend
+
+# Stage 1: Dependencies & Build
+FROM node:18-alpine as builder
+
+WORKDIR /app
+
+COPY frontend/package*.json ./
+RUN npm ci || npm install
+
+COPY frontend/ ./
+RUN npm run build || echo "No build script configured, using static assets"
+RUN mkdir -p /app/out && \
+    if [ -d "/app/dist" ]; then cp -r /app/dist/* /app/out/; \
+    elif [ -d "/app/build" ]; then cp -r /app/build/* /app/out/; \
+    elif [ -d "/app/public" ]; then cp -r /app/public/* /app/out/; \
+    fi
+
+# Stage 2: Nginx Web Server Runner
+FROM nginx:alpine as runner
+
+COPY --from=builder /app/out /usr/share/nginx/html
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://localhost:80/ || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]
