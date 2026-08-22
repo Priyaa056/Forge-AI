@@ -1,0 +1,837 @@
+{
+  "project_name": "TaskFlow",
+  "pages": [
+    {
+      "name": "DashboardPage",
+      "route_path": "/",
+      "layout": "MainLayout",
+      "description": "Main dashboard summary overview for TaskFlow",
+      "components_used": [
+        "Navbar",
+        "Sidebar",
+        "StatsCard"
+      ],
+      "required_auth": true,
+      "state_requirements": [
+        "currentUser",
+        "metrics"
+      ]
+    },
+    {
+      "name": "LoginPage",
+      "route_path": "/login",
+      "layout": "AuthLayout",
+      "description": "User authentication login page",
+      "components_used": [
+        "LoginForm",
+        "AuthCard"
+      ],
+      "required_auth": false,
+      "state_requirements": [
+        "loginCredentials",
+        "authError"
+      ]
+    },
+    {
+      "name": "RegisterPage",
+      "route_path": "/register",
+      "layout": "AuthLayout",
+      "description": "User account registration page",
+      "components_used": [
+        "RegisterForm",
+        "AuthCard"
+      ],
+      "required_auth": false,
+      "state_requirements": [
+        "registrationData",
+        "validationErrors"
+      ]
+    },
+    {
+      "name": "UserPage",
+      "route_path": "/users",
+      "layout": "MainLayout",
+      "description": "Management page for User items",
+      "components_used": [
+        "Navbar",
+        "Sidebar",
+        "UserTable",
+        "UserFilterBar"
+      ],
+      "required_auth": true,
+      "state_requirements": [
+        "usersList",
+        "filterQuery"
+      ]
+    },
+    {
+      "name": "UserDetailPage",
+      "route_path": "/users/:id",
+      "layout": "MainLayout",
+      "description": "Detailed view and editor for User",
+      "components_used": [
+        "Navbar",
+        "Sidebar",
+        "UserDetail",
+        "UserForm"
+      ],
+      "required_auth": true,
+      "state_requirements": [
+        "selectedUser",
+        "isEditing"
+      ]
+    },
+    {
+      "name": "TaskPage",
+      "route_path": "/tasks",
+      "layout": "MainLayout",
+      "description": "Management page for Task items",
+      "components_used": [
+        "Navbar",
+        "Sidebar",
+        "TaskTable",
+        "TaskFilterBar"
+      ],
+      "required_auth": true,
+      "state_requirements": [
+        "tasksList",
+        "filterQuery"
+      ]
+    },
+    {
+      "name": "TaskDetailPage",
+      "route_path": "/tasks/:id",
+      "layout": "MainLayout",
+      "description": "Detailed view and editor for Task",
+      "components_used": [
+        "Navbar",
+        "Sidebar",
+        "TaskDetail",
+        "TaskForm"
+      ],
+      "required_auth": true,
+      "state_requirements": [
+        "selectedTask",
+        "isEditing"
+      ]
+    },
+    {
+      "name": "CategoryPage",
+      "route_path": "/categories",
+      "layout": "MainLayout",
+      "description": "Management page for Category items",
+      "components_used": [
+        "Navbar",
+        "Sidebar",
+        "CategoryTable",
+        "CategoryFilterBar"
+      ],
+      "required_auth": true,
+      "state_requirements": [
+        "categoriesList",
+        "filterQuery"
+      ]
+    },
+    {
+      "name": "CategoryDetailPage",
+      "route_path": "/categories/:id",
+      "layout": "MainLayout",
+      "description": "Detailed view and editor for Category",
+      "components_used": [
+        "Navbar",
+        "Sidebar",
+        "CategoryDetail",
+        "CategoryForm"
+      ],
+      "required_auth": true,
+      "state_requirements": [
+        "selectedCategory",
+        "isEditing"
+      ]
+    }
+  ],
+  "components": [
+    {
+      "name": "Navbar",
+      "type": "navbar",
+      "description": "Top navigation header",
+      "props": [
+        {
+          "name": "user",
+          "type": "UserObject",
+          "required": "false"
+        },
+        {
+          "name": "onLogout",
+          "type": "function",
+          "required": "false"
+        }
+      ],
+      "state_variables": [
+        {
+          "name": "isProfileDropdownOpen",
+          "type": "boolean",
+          "default": "false"
+        }
+      ],
+      "event_handlers": [
+        "onToggleMenu",
+        "onLogoutClick"
+      ],
+      "child_components": [
+        "UserProfileDropdown",
+        "ThemeToggle"
+      ]
+    },
+    {
+      "name": "Sidebar",
+      "type": "sidebar",
+      "description": "Collapsible side navigation bar",
+      "props": [
+        {
+          "name": "activePath",
+          "type": "string",
+          "required": "true"
+        }
+      ],
+      "state_variables": [
+        {
+          "name": "isCollapsed",
+          "type": "boolean",
+          "default": "false"
+        }
+      ],
+      "event_handlers": [
+        "onNavigate"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "StatsCard",
+      "type": "card",
+      "description": "Visual metric card",
+      "props": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": "true"
+        },
+        {
+          "name": "value",
+          "type": "number",
+          "required": "true"
+        }
+      ],
+      "state_variables": [],
+      "event_handlers": [],
+      "child_components": []
+    },
+    {
+      "name": "AuthCard",
+      "type": "card",
+      "description": "Container card for authentication pages",
+      "props": [],
+      "state_variables": [],
+      "event_handlers": [],
+      "child_components": []
+    },
+    {
+      "name": "LoginForm",
+      "type": "form",
+      "description": "User login form",
+      "props": [],
+      "state_variables": [],
+      "event_handlers": [
+        "onSubmit"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "RegisterForm",
+      "type": "form",
+      "description": "User registration form",
+      "props": [],
+      "state_variables": [],
+      "event_handlers": [
+        "onSubmit"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "UserTable",
+      "type": "table",
+      "description": "Tabular list of User entries",
+      "props": [
+        {
+          "name": "items",
+          "type": "Array",
+          "required": "true"
+        }
+      ],
+      "state_variables": [
+        {
+          "name": "sortColumn",
+          "type": "string",
+          "default": "'id'"
+        }
+      ],
+      "event_handlers": [
+        "handleSort",
+        "handleSelectRow"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "UserForm",
+      "type": "form",
+      "description": "Form for creating/editing User",
+      "props": [
+        {
+          "name": "initialValues",
+          "type": "Object",
+          "required": "false"
+        }
+      ],
+      "state_variables": [],
+      "event_handlers": [
+        "handleSubmit"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "UserDetail",
+      "type": "card",
+      "description": "Detail viewer component for User",
+      "props": [
+        {
+          "name": "item",
+          "type": "Object",
+          "required": "true"
+        }
+      ],
+      "state_variables": [],
+      "event_handlers": [],
+      "child_components": []
+    },
+    {
+      "name": "UserFilterBar",
+      "type": "filter",
+      "description": "Filter bar for User entries",
+      "props": [
+        {
+          "name": "onFilter",
+          "type": "function",
+          "required": "true"
+        }
+      ],
+      "state_variables": [],
+      "event_handlers": [
+        "onFilterChange"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "TaskTable",
+      "type": "table",
+      "description": "Tabular list of Task entries",
+      "props": [
+        {
+          "name": "items",
+          "type": "Array",
+          "required": "true"
+        }
+      ],
+      "state_variables": [
+        {
+          "name": "sortColumn",
+          "type": "string",
+          "default": "'id'"
+        }
+      ],
+      "event_handlers": [
+        "handleSort",
+        "handleSelectRow"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "TaskForm",
+      "type": "form",
+      "description": "Form for creating/editing Task",
+      "props": [
+        {
+          "name": "initialValues",
+          "type": "Object",
+          "required": "false"
+        }
+      ],
+      "state_variables": [],
+      "event_handlers": [
+        "handleSubmit"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "TaskDetail",
+      "type": "card",
+      "description": "Detail viewer component for Task",
+      "props": [
+        {
+          "name": "item",
+          "type": "Object",
+          "required": "true"
+        }
+      ],
+      "state_variables": [],
+      "event_handlers": [],
+      "child_components": []
+    },
+    {
+      "name": "TaskFilterBar",
+      "type": "filter",
+      "description": "Filter bar for Task entries",
+      "props": [
+        {
+          "name": "onFilter",
+          "type": "function",
+          "required": "true"
+        }
+      ],
+      "state_variables": [],
+      "event_handlers": [
+        "onFilterChange"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "CategoryTable",
+      "type": "table",
+      "description": "Tabular list of Category entries",
+      "props": [
+        {
+          "name": "items",
+          "type": "Array",
+          "required": "true"
+        }
+      ],
+      "state_variables": [
+        {
+          "name": "sortColumn",
+          "type": "string",
+          "default": "'id'"
+        }
+      ],
+      "event_handlers": [
+        "handleSort",
+        "handleSelectRow"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "CategoryForm",
+      "type": "form",
+      "description": "Form for creating/editing Category",
+      "props": [
+        {
+          "name": "initialValues",
+          "type": "Object",
+          "required": "false"
+        }
+      ],
+      "state_variables": [],
+      "event_handlers": [
+        "handleSubmit"
+      ],
+      "child_components": []
+    },
+    {
+      "name": "CategoryDetail",
+      "type": "card",
+      "description": "Detail viewer component for Category",
+      "props": [
+        {
+          "name": "item",
+          "type": "Object",
+          "required": "true"
+        }
+      ],
+      "state_variables": [],
+      "event_handlers": [],
+      "child_components": []
+    },
+    {
+      "name": "CategoryFilterBar",
+      "type": "filter",
+      "description": "Filter bar for Category entries",
+      "props": [
+        {
+          "name": "onFilter",
+          "type": "function",
+          "required": "true"
+        }
+      ],
+      "state_variables": [],
+      "event_handlers": [
+        "onFilterChange"
+      ],
+      "child_components": []
+    }
+  ],
+  "routes": [
+    {
+      "path": "/",
+      "component_name": "DashboardPage",
+      "exact": true,
+      "protected": true,
+      "title": "TaskFlow - Dashboard"
+    },
+    {
+      "path": "/login",
+      "component_name": "LoginPage",
+      "exact": true,
+      "protected": false,
+      "title": "TaskFlow - Login"
+    },
+    {
+      "path": "/register",
+      "component_name": "RegisterPage",
+      "exact": true,
+      "protected": false,
+      "title": "TaskFlow - Register"
+    },
+    {
+      "path": "/users",
+      "component_name": "UserPage",
+      "exact": true,
+      "protected": true,
+      "title": "TaskFlow - Users"
+    },
+    {
+      "path": "/users/:id",
+      "component_name": "UserDetailPage",
+      "exact": true,
+      "protected": true,
+      "title": "TaskFlow - User Detail"
+    },
+    {
+      "path": "/tasks",
+      "component_name": "TaskPage",
+      "exact": true,
+      "protected": true,
+      "title": "TaskFlow - Tasks"
+    },
+    {
+      "path": "/tasks/:id",
+      "component_name": "TaskDetailPage",
+      "exact": true,
+      "protected": true,
+      "title": "TaskFlow - Task Detail"
+    },
+    {
+      "path": "/categories",
+      "component_name": "CategoryPage",
+      "exact": true,
+      "protected": true,
+      "title": "TaskFlow - Categorys"
+    },
+    {
+      "path": "/categories/:id",
+      "component_name": "CategoryDetailPage",
+      "exact": true,
+      "protected": true,
+      "title": "TaskFlow - Category Detail"
+    }
+  ],
+  "layouts": [
+    {
+      "name": "MainLayout",
+      "description": "Standard main application layout",
+      "slots": [
+        "main"
+      ],
+      "default_layout": true
+    },
+    {
+      "name": "AuthLayout",
+      "description": "Authentication page layout",
+      "slots": [
+        "main"
+      ],
+      "default_layout": false
+    }
+  ],
+  "forms": [
+    {
+      "name": "LoginForm",
+      "form_name": null,
+      "entity_name": "User",
+      "fields": [
+        {
+          "name": "email",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "password",
+          "type": "VARCHAR"
+        }
+      ],
+      "submit_endpoint": "/api/auth/login",
+      "validation_rules": []
+    },
+    {
+      "name": "RegisterForm",
+      "form_name": null,
+      "entity_name": "User",
+      "fields": [
+        {
+          "name": "email",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "password",
+          "type": "VARCHAR"
+        }
+      ],
+      "submit_endpoint": "/api/auth/register",
+      "validation_rules": []
+    },
+    {
+      "name": "UserForm",
+      "form_name": null,
+      "entity_name": "User",
+      "fields": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "username",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "hashed_password",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME"
+        }
+      ],
+      "submit_endpoint": "/api/users",
+      "validation_rules": []
+    },
+    {
+      "name": "TaskForm",
+      "form_name": null,
+      "entity_name": "Task",
+      "fields": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "user_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "category_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "title",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "description",
+          "type": "TEXT"
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "priority",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "due_date",
+          "type": "DATETIME"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME"
+        }
+      ],
+      "submit_endpoint": "/api/tasks",
+      "validation_rules": []
+    },
+    {
+      "name": "CategoryForm",
+      "form_name": null,
+      "entity_name": "Category",
+      "fields": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "user_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR"
+        },
+        {
+          "name": "color_code",
+          "type": "VARCHAR"
+        }
+      ],
+      "submit_endpoint": "/api/categories",
+      "validation_rules": []
+    }
+  ],
+  "frontend_dependencies": [
+    {
+      "package_name": "react",
+      "version": "^18.2.0",
+      "purpose": "Core React framework",
+      "category": "core"
+    },
+    {
+      "package_name": "react-dom",
+      "version": "^18.2.0",
+      "purpose": "React DOM renderer",
+      "category": "core"
+    },
+    {
+      "package_name": "react-router-dom",
+      "version": "^6.20.0",
+      "purpose": "Client-side routing",
+      "category": "routing"
+    },
+    {
+      "package_name": "axios",
+      "version": "^1.6.2",
+      "purpose": "HTTP client for API integration",
+      "category": "http"
+    },
+    {
+      "package_name": "lucide-react",
+      "version": "^0.294.0",
+      "purpose": "Icon library",
+      "category": "icons"
+    }
+  ],
+  "api_requirements": [
+    {
+      "endpoint": "/api/auth/login",
+      "method": "POST",
+      "description": "User authentication endpoint",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/auth/register",
+      "method": "POST",
+      "description": "User registration endpoint",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/users",
+      "method": "GET",
+      "description": "Fetch list of User records",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/users",
+      "method": "POST",
+      "description": "Create a new User record",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/users/:id",
+      "method": "PUT",
+      "description": "Update a User record",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/users/:id",
+      "method": "DELETE",
+      "description": "Delete a User record",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/tasks",
+      "method": "GET",
+      "description": "Fetch list of Task records",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/tasks",
+      "method": "POST",
+      "description": "Create a new Task record",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/tasks/:id",
+      "method": "PUT",
+      "description": "Update a Task record",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/tasks/:id",
+      "method": "DELETE",
+      "description": "Delete a Task record",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/categories",
+      "method": "GET",
+      "description": "Fetch list of Category records",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/categories",
+      "method": "POST",
+      "description": "Create a new Category record",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/categories/:id",
+      "method": "PUT",
+      "description": "Update a Category record",
+      "request_body": null,
+      "response_schema": null
+    },
+    {
+      "endpoint": "/api/categories/:id",
+      "method": "DELETE",
+      "description": "Delete a Category record",
+      "request_body": null,
+      "response_schema": null
+    }
+  ],
+  "styling_requirements": {
+    "theme_mode": "dark",
+    "primary_color": "#6366F1",
+    "font_family": "Inter, sans-serif",
+    "design_system_notes": "Modern dark theme UI with sleek gradients",
+    "css_approach": "Vanilla CSS"
+  }
+}
