@@ -1,17 +1,21 @@
-"""Custom exception classes for FORGE AI Backend, DB, and Auth Agents."""
+"""Exceptions for FORGE AI platform."""
 
-class AgentException(Exception):
-    """Base exception for all agent operations."""
+
+class ForgeAIError(Exception):
+    """Base exception for FORGE AI platform errors."""
     pass
 
-class MissingInputError(AgentException):
-    """Raised when a required input JSON file is missing."""
+
+class MissingInputError(ForgeAIError):
+    """Raised when an expected input file does not exist on disk."""
     pass
 
-class ValidationError(AgentException):
-    """Raised when JSON input/output fails Pydantic schema validation."""
+
+class ValidationError(ForgeAIError):
+    """Raised when input file content is empty, malformed, or missing mandatory schema fields."""
     pass
 
-class GenerationError(AgentException):
-    """Raised when specification generation fails."""
+
+class GenerationError(ForgeAIError):
+    """Raised when generation process fails unrecoverably."""
     pass

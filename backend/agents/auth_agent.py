@@ -89,15 +89,33 @@ STRICT RULES:
         project_name = self.pm_data.project_name
 
         # Protected endpoints extraction from backend output
+                # Protected endpoints extraction from backend output
         protected_endpoints: List[Dict[str, Any]] = []
         if self.backend_data:
             for ep in self.backend_data.endpoints:
-                if ep.requires_auth:
+
+                # Support both Pydantic endpoint objects and dictionaries
+                if isinstance(ep, dict):
+                    requires_auth = ep.get("requires_auth", False)
+                    path = ep.get("path", "")
+                    method = ep.get("method", "GET")
+                    required_roles = ep.get("required_roles") or ["user"]
+                    tags = ep.get("tags") or []
+                else:
+                    requires_auth = ep.requires_auth
+                    path = ep.path
+                    method = ep.method
+                    required_roles = ep.required_roles or ["user"]
+                    tags = ep.tags or []
+
+                if requires_auth:
                     protected_endpoints.append({
-                        "path": ep.path,
-                        "method": ep.method,
-                        "required_roles": ep.required_roles or ["user"],
-                        "required_permissions": [f"{ep.method.lower()}:{ep.tags[0].lower() if ep.tags else 'resource'}"]
+                        "path": path,
+                        "method": method,
+                        "required_roles": required_roles,
+                        "required_permissions": [
+                            f"{method.lower()}:{tags[0].lower() if tags else 'resource'}"
+                        ]
                     })
 
         return {

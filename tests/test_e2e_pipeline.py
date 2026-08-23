@@ -7,9 +7,11 @@ from pathlib import Path
 from backend.agents.backend_agent import BackendAgent
 from backend.agents.db_agent import DBAgent
 from backend.agents.auth_agent import AuthAgent
+from backend.agents.ui_agent import UIAgent
 from backend.schemas.backend_schema import BackendOutput
 from backend.schemas.db_schema import DBOutput
 from backend.schemas.auth_schema import AuthOutput
+from backend.schemas.ui_schema import UIOutput
 
 
 @pytest.fixture
@@ -123,7 +125,7 @@ def sample_domains():
 
 
 def test_e2e_pipeline_all_domains(tmp_path, sample_domains):
-    """Test full PM -> Backend -> DB -> Auth pipeline for Task Management, Blog, and E-commerce domains."""
+    """Test full PM -> Backend -> DB -> Auth -> UI pipeline for Task Management, Blog, and E-commerce domains."""
     for domain_name, pm_data in sample_domains.items():
         domain_dir = tmp_path / domain_name.replace(" ", "_").lower()
         domain_dir.mkdir()
@@ -132,6 +134,7 @@ def test_e2e_pipeline_all_domains(tmp_path, sample_domains):
         backend_path = domain_dir / "backend_output.json"
         db_path = domain_dir / "db_output.json"
         auth_path = domain_dir / "auth_output.json"
+        ui_path = domain_dir / "ui_output.json"
 
         # 1. Write PM Output
         pm_path.write_text(json.dumps(pm_data), encoding="utf-8")
@@ -164,7 +167,19 @@ def test_e2e_pipeline_all_domains(tmp_path, sample_domains):
         assert auth_out.password_security.hashing_algorithm == "bcrypt"
         assert auth_out.jwt_strategy.algorithm == "HS256"
 
+        # 5. Run UI Agent
+        ui_agent = UIAgent(
+            pm_output_path=str(pm_path),
+            output_filepath=str(ui_path)
+        )
+        ui_out = ui_agent.run()
+        assert isinstance(ui_out, UIOutput)
+        assert ui_out.project_name == pm_data["project_name"]
+        assert len(ui_out.pages) >= 3
+
         # Check file persistence
         assert backend_path.is_file()
         assert db_path.is_file()
         assert auth_path.is_file()
+        assert ui_path.is_file()
+
