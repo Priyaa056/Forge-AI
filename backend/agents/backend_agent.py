@@ -38,27 +38,35 @@ class BackendAgent(BaseAgent[BackendOutput]):
                 self.logger.warning(f"Failed to parse optional ui_output.json: {e}")
 
     def generate(self) -> Dict[str, Any]:
-        """Generate backend specification using LLM or rule-based fallback."""
+        """Generate backend specification using LLM or rule-based fallback.
+
+        Failure modes:
+        - LLM API unavailable / network error → falls back to rule-based generator (safe, intended).
+        - LLM returns malformed JSON or output that fails the Pydantic schema → raises
+          GenerationError so the calling pipeline is explicitly notified (never silently replaced).
+        """
         if not self.pm_data:
             raise GenerationError("Inputs not loaded. Call load_inputs() first.")
 
         model = self.get_gemini_model()
         if model:
+            # --- Phase 1: LLM API call -------------------------------------------------
+            # A network/auth/quota failure is an infrastructure problem; fall back safely.
+            llm_text: str | None = None
             try:
                 prompt = self._build_prompt()
                 response = model.generate_content(prompt)
-                text = response.text.strip()
-                if text.startswith("```json"):
-                    text = text[7:]
-                if text.endswith("```"):
-                    text = text[:-3]
-                text = text.strip()
-                parsed = json.loads(text)
-                # Verify parseable by BackendOutput schema
-                BackendOutput.model_validate(parsed)
-                return parsed
+                llm_text = response.text.strip()
             except Exception as e:
-                self.logger.warning(f"LLM generation failed or returned invalid schema ({e}). Falling back to dynamic rule generator.")
+                self.logger.warning(
+                    f"LLM API call failed ({e}). Falling back to rule-based generator."
+                )
+
+            # --- Phase 2: Output validation --------------------------------------------
+            # The LLM responded — validate strictly. Do NOT fall back on bad output;
+            # the caller must know the LLM produced unusable data.
+            if llm_text is not None:
+                return self.parse_and_validate_llm_output(llm_text)
 
         return self._generate_fallback()
 

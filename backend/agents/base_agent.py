@@ -48,6 +48,39 @@ class BaseAgent(ABC, Generic[T]):
             self.logger.warning(f"Failed to configure Gemini model: {e}. Using rule-based fallback.")
             return None
 
+    def parse_and_validate_llm_output(self, llm_text: str) -> Dict[str, Any]:
+        """Parse raw LLM output text and validate against self.output_schema_cls.
+
+        Raises ValidationError if output is malformed JSON or fails Pydantic schema validation.
+        """
+        agent_name = self.__class__.__name__
+        cleaned_text = llm_text.strip()
+        if cleaned_text.startswith("```json"):
+            cleaned_text = cleaned_text[7:]
+        if cleaned_text.startswith("```"):
+            cleaned_text = cleaned_text[3:]
+        if cleaned_text.endswith("```"):
+            cleaned_text = cleaned_text[:-3]
+        cleaned_text = cleaned_text.strip()
+
+        try:
+            parsed = json.loads(cleaned_text)
+        except json.JSONDecodeError as e:
+            self.logger.error(f"[{agent_name}] LLM returned malformed JSON: {e}")
+            raise ValidationError(
+                f"[{agent_name}] LLM schema validation failed: malformed JSON ({str(e)})"
+            ) from e
+
+        try:
+            self.output_schema_cls.model_validate(parsed)
+            return parsed
+        except PydanticValidationError as e:
+            self.logger.error(f"[{agent_name}] LLM output schema validation failed: {e}")
+            raise ValidationError(
+                f"[{agent_name}] LLM schema validation failed: {str(e)}"
+            ) from e
+
+
     def read_json_file(self, filepath: str) -> Dict[str, Any]:
         """Read and parse a JSON input file."""
         path = Path(filepath)

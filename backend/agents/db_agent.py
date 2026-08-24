@@ -39,28 +39,78 @@ class DBAgent(BaseAgent[DBOutput]):
             raise ValidationError(f"Invalid backend_output.json format: {e}")
 
     def generate(self) -> Dict[str, Any]:
-        """Generate Database specification using LLM or rule-based fallback."""
+        """Generate Database specification using LLM or rule-based fallback.
+
+        Failure modes:
+        - LLM API unavailable / network error → falls back to rule-based generator (safe, intended).
+        - LLM returns malformed JSON or output that fails the Pydantic schema → raises
+          GenerationError so the calling pipeline is explicitly notified (never silently replaced).
+        """
         if not self.pm_data or not self.backend_data:
             raise GenerationError("Inputs not loaded. Call load_inputs() first.")
 
         model = self.get_gemini_model()
         if model:
+            # --- Phase 1: LLM API call -------------------------------------------------
+            # A network/auth/quota failure is an infrastructure problem; fall back safely.
+            llm_text: str | None = None
             try:
                 prompt = self._build_prompt()
                 response = model.generate_content(prompt)
-                text = response.text.strip()
-                if text.startswith("```json"):
-                    text = text[7:]
-                if text.endswith("```"):
-                    text = text[:-3]
-                text = text.strip()
-                parsed = json.loads(text)
-                DBOutput.model_validate(parsed)
-                return parsed
+                llm_text = response.text.strip()
             except Exception as e:
-                self.logger.warning(f"LLM generation failed or returned invalid schema ({e}). Falling back to dynamic rule generator.")
+                self.logger.warning(
+                    f"LLM API call failed ({e}). Falling back to rule-based generator."
+                )
+
+            # --- Phase 2: Output validation --------------------------------------------
+            # The LLM responded — validate strictly. Do NOT fall back on bad output;
+            # the caller must know the LLM produced unusable data.
+            if llm_text is not None:
+                return self.parse_and_validate_llm_output(llm_text)
 
         return self._generate_fallback()
+
+    @staticmethod
+    def _infer_check_constraint(field_name: str, field_type: str, description: Optional[str] = None) -> Optional[str]:
+        """Derive appropriate SQL CHECK constraint expression from field metadata.
+
+        Returns None if no CHECK constraint is required for the column.
+        """
+        fname = field_name.lower()
+        ftype = field_type.upper()
+        desc = (description or "").lower()
+
+        # Check rating/stars
+        if "rating" in fname or "stars" in fname:
+            return f"{field_name} >= 1 AND {field_name} <= 5"
+
+        # Check non-negative numeric fields (price, quantity, stock, amount, score, count, balance, total)
+        if any(k in fname for k in ["price", "quantity", "stock", "amount", "score", "count", "balance", "total_amount"]):
+            if any(t in ftype for t in ["INT", "FLOAT", "NUMERIC", "DECIMAL", "DOUBLE", "REAL"]):
+                return f"{field_name} >= 0"
+
+        # Check percentage fields
+        if "percent" in fname or "percentage" in fname:
+            return f"{field_name} >= 0 AND {field_name} <= 100"
+
+        # Check description hints
+        if desc:
+            if "must be >= 0" in desc or "non-negative" in desc:
+                return f"{field_name} >= 0"
+            if "between 1 and 5" in desc:
+                return f"{field_name} >= 1 AND {field_name} <= 5"
+
+        return None
+
+    @staticmethod
+    def generate_revision_id(project_name: str, sequence_num: int = 1) -> str:
+        """Generate a dynamic, unique Alembic migration revision ID."""
+        import hashlib
+        clean_name = "".join(c for c in project_name.lower() if c.isalnum() or c == "_")
+        clean_name = clean_name[:16].strip("_") or "app"
+        content_hash = hashlib.sha256(f"{project_name}_{sequence_num}".encode("utf-8")).hexdigest()[:8]
+        return f"rev_{sequence_num:04d}_{clean_name}_{content_hash}"
 
     def _build_prompt(self) -> str:
         """Build structured LLM prompt for database spec generation."""
@@ -75,6 +125,8 @@ PM SPEC:
 STRICT RULES:
 - Return ONLY valid raw JSON. No markdown formatting.
 - Output MUST conform to DBOutput schema.
+- Generate appropriate `check_constraint` SQL expressions for columns where business logic requires value validation (e.g., `price >= 0`, `quantity >= 0`, `rating >= 1 AND rating <= 5`). Leave `check_constraint` as null for standard columns.
+- Generate a dynamic revision_id in alembic_metadata.
 """
 
     def _generate_fallback(self) -> Dict[str, Any]:
@@ -89,8 +141,21 @@ STRICT RULES:
             entity_table_map[name] = table_name
 
         tables: List[Dict[str, Any]] = []
+        has_any_check = False
+
+        # First pass to check if any field has check constraint for imports
+        for entity in entities:
+            for field in entity.fields:
+                if self._infer_check_constraint(field.name, field.type, getattr(field, "description", None)):
+                    has_any_check = True
+                    break
+
+        sa_imports = "from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Index, func"
+        if has_any_check:
+            sa_imports = "from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Index, CheckConstraint, func"
+
         orm_imports = [
-            "from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Index, func",
+            sa_imports,
             "from sqlalchemy.orm import declarative_base, relationship",
             "from datetime import datetime",
             "",
@@ -120,6 +185,7 @@ STRICT RULES:
             for field in entity.fields:
                 fname = field.name
                 ftype = field.type.upper()
+                fdesc = getattr(field, "description", None)
 
                 is_pk = fname == "id" or field.primary_key
                 is_unique = field.unique or (fname in ["email", "username"])
@@ -169,6 +235,8 @@ STRICT RULES:
                         "cascade": None
                     })
 
+                check_constraint = self._infer_check_constraint(fname, ftype, fdesc)
+
                 col_dict = {
                     "name": fname,
                     "data_type": pg_type,
@@ -177,12 +245,14 @@ STRICT RULES:
                     "is_unique": is_unique,
                     "default_value": "autoincrement" if is_pk else ("func.now()" if "DATETIME" in ftype else None),
                     "foreign_key": fk_spec,
-                    "check_constraint": None
+                    "check_constraint": check_constraint
                 }
                 columns.append(col_dict)
 
                 # Build ORM line
                 sa_kwargs = []
+                if check_constraint:
+                    sa_kwargs.append(f"CheckConstraint('{check_constraint}')")
                 if is_pk:
                     sa_kwargs.append("primary_key=True, index=True")
                 if is_unique and not is_pk:
@@ -241,8 +311,9 @@ STRICT RULES:
 
         sqlalchemy_models_code = "\n".join(orm_imports) + "\n" + "\n".join(orm_classes)
 
+        revision_id = self.generate_revision_id(project_name)
         alembic_metadata = {
-            "revision_id": "0001_initial_schema",
+            "revision_id": revision_id,
             "down_revision": None,
             "description": f"Initial schema migration for {project_name}",
             "upgrade_instructions": upgrade_ops,
