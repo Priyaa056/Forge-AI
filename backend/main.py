@@ -21,7 +21,7 @@ from backend.artifacts import (
     ArtifactSecurityError,
     ArtifactValidationError,
 )
-from backend.monitoring import PipelineLogger, MonitoringService
+from backend.monitoring import PipelineLogger, MonitoringService, sanitize_secret
 
 app = FastAPI(
     title="Forge AI Backend Server",
@@ -32,7 +32,14 @@ app = FastAPI(
 # CORS setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "*",
+    ],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:[0-9]+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -46,28 +53,28 @@ ACTIVE_PIPELINES: Dict[str, ForgePipeline] = {}
 def rollback_validation_exception_handler(request: Request, exc: RollbackValidationError):
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
-        content={"detail": str(exc)},
+        content={"detail": sanitize_secret(str(exc))},
     )
 
 @app.exception_handler(RollbackDependencyError)
 def rollback_dependency_exception_handler(request: Request, exc: RollbackDependencyError):
     return JSONResponse(
         status_code=status.HTTP_409_CONFLICT,
-        content={"detail": str(exc)},
+        content={"detail": sanitize_secret(str(exc))},
     )
 
 @app.exception_handler(ArtifactSecurityError)
 def artifact_security_exception_handler(request: Request, exc: ArtifactSecurityError):
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
-        content={"detail": str(exc)},
+        content={"detail": sanitize_secret(str(exc))},
     )
 
 @app.exception_handler(ArtifactValidationError)
 def artifact_validation_exception_handler(request: Request, exc: ArtifactValidationError):
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
-        content={"detail": str(exc)},
+        content={"detail": sanitize_secret(str(exc))},
     )
 
 # Database Setup
@@ -156,6 +163,11 @@ def health_check():
 
 @app.post("/api/pm/generate")
 def generate_pm_spec(request: PMRequest):
+    if not request.user_prompt or not request.user_prompt.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_prompt cannot be empty or whitespace"
+        )
     try:
         raw_output = generate_pm_output(request.user_prompt)
         parsed_json = json.loads(raw_output)
@@ -163,13 +175,31 @@ def generate_pm_spec(request: PMRequest):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail=sanitize_secret(str(e))
         )
 
 # Pipeline & Project API Endpoints
 @app.post("/api/projects", status_code=status.HTTP_201_CREATED)
 def create_project_run(req: ProjectCreateRequest):
     """Initialize a new ForgePipeline project run and execute if requested."""
+    if not req.user_prompt or not req.user_prompt.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_prompt cannot be empty or whitespace"
+        )
+
+    if req.project_id and (".." in req.project_id or "/" in req.project_id or "\\" in req.project_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid project_id format '{req.project_id}'"
+        )
+
+    if req.output_dir and ".." in req.output_dir:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid output_dir path '{req.output_dir}'"
+        )
+
     pipeline = ForgePipeline(
         user_prompt=req.user_prompt,
         project_id=req.project_id,
@@ -214,6 +244,13 @@ def get_run_artifacts(project_id: str, run_id: str):
         art_mgr = ArtifactManager()
 
     artifacts = art_mgr.list_artifacts(project_id=project_id, run_id=run_id)
+    if not artifacts and key not in ACTIVE_PIPELINES:
+        events = MonitoringService().get_events_by_run_id(run_id)
+        if not events:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Run '{run_id}' not found for project '{project_id}'"
+            )
     return {
         "project_id": project_id,
         "run_id": run_id,
@@ -249,6 +286,13 @@ def get_run_events(project_id: str, run_id: str):
         svc = MonitoringService()
 
     events = svc.get_events_by_run_id(run_id)
+    if not events and key not in ACTIVE_PIPELINES:
+        artifacts = ArtifactManager().list_artifacts(project_id=project_id, run_id=run_id)
+        if not artifacts:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Run '{run_id}' not found for project '{project_id}'"
+            )
     return {
         "project_id": project_id,
         "run_id": run_id,

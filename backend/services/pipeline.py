@@ -448,10 +448,11 @@ class ForgePipeline:
             duration_ms = round((time.monotonic() - stage_start) * 1000, 2)
             self._agent_durations[stage.value] = duration_ms
 
+            clean_err = sanitize_secret(str(e))
             self.state.agent_statuses[stage] = AgentStatus.FAILED
-            self.state.error_reports[stage.value] = str(e)
+            self.state.error_reports[stage.value] = clean_err
             self.state.execution_status = AgentStatus.FAILED
-            logger.error(f"Error in pipeline stage {stage.value}: {e}")
+            logger.error(f"Error in pipeline stage {stage.value}: {clean_err}")
 
             failed_artifact_id = None
             # Persist FAILED artifact
@@ -461,7 +462,7 @@ class ForgePipeline:
                     run_id=self.state.run_id,
                     agent_name=stage.value,
                     artifact_type=STAGE_SCHEMA_MAP[stage].__name__,
-                    content={"error": sanitize_secret(str(e)), "stage": stage.value},
+                    content={"error": clean_err, "stage": stage.value},
                     input_artifacts=input_artifact_ids,
                     status=ArtifactStatus.FAILED,
                     metadata={"error_type": type(e).__name__},
@@ -479,7 +480,7 @@ class ForgePipeline:
                 artifact_id=failed_artifact_id,
                 input_artifact_ids=input_artifact_ids,
                 error_type=type(e).__name__,
-                error_message=str(e),
+                error_message=clean_err,
             )
 
             self.pipeline_logger.log_agent_failed(
@@ -489,7 +490,7 @@ class ForgePipeline:
                 pipeline_stage=stage.value,
                 duration_ms=duration_ms,
                 error_type=type(e).__name__,
-                error_message=str(e),
+                error_message=clean_err,
                 artifact_id=failed_artifact_id,
                 input_artifact_ids=input_artifact_ids,
             )
@@ -553,13 +554,14 @@ class ForgePipeline:
                 self._total_duration_ms = duration_ms
                 self.state.execution_status = AgentStatus.FAILED
                 self.state.current_agent = stage
+                clean_err = sanitize_secret(str(e))
 
                 self.pipeline_logger.log_pipeline_failed(
                     run_id=self.state.run_id,
                     project_id=self.state.project_id,
                     duration_ms=duration_ms,
                     error_type=type(e).__name__,
-                    error_message=str(e),
+                    error_message=clean_err,
                 )
                 return self.state
 
