@@ -6,17 +6,27 @@ from pathlib import Path
 
 from backend.agents.base_agent import BaseAgent
 from backend.schemas.pm_schema import PMOutput
+from backend.schemas.ui_schema import UIOutput
 from backend.schemas.backend_schema import BackendOutput
+from backend.artifacts.artifact_context import ArtifactContext
 from backend.exceptions import MissingInputError, ValidationError, GenerationError
 
 
 class BackendAgent(BaseAgent[BackendOutput]):
     """Agent responsible for generating backend FastAPI specifications from PM specifications."""
 
-    def __init__(self, pm_output_path: str = "outputs/pm_output.json",
-                 ui_output_path: Optional[str] = "outputs/ui_output.json",
-                 output_filepath: str = "outputs/backend_output.json"):
-        super().__init__(output_schema_cls=BackendOutput, output_filepath=output_filepath)
+    def __init__(
+        self,
+        pm_output_path: str = "outputs/pm_output.json",
+        ui_output_path: Optional[str] = "outputs/ui_output.json",
+        output_filepath: str = "outputs/backend_output.json",
+        artifact_context: Optional[ArtifactContext] = None,
+    ):
+        super().__init__(
+            output_schema_cls=BackendOutput,
+            output_filepath=output_filepath,
+            artifact_context=artifact_context,
+        )
         self.pm_output_path = pm_output_path
         self.ui_output_path = ui_output_path
         self.pm_data: Optional[PMOutput] = None
@@ -24,18 +34,24 @@ class BackendAgent(BaseAgent[BackendOutput]):
 
     def load_inputs(self) -> None:
         """Load and validate inputs from PM and optional UI agent."""
-        raw_pm = self.read_json_file(self.pm_output_path)
-        try:
-            self.pm_data = PMOutput.model_validate(raw_pm)
-        except Exception as e:
-            raise ValidationError(f"Invalid pm_output.json format: {e}")
-
-        # Optional UI agent output
-        if self.ui_output_path and Path(self.ui_output_path).is_file():
+        if self.artifact_context:
+            self.pm_data = self.artifact_context.get_validated_content("pm", PMOutput)
+            ui_out = self.artifact_context.get_validated_content("ui", UIOutput, optional=True)
+            self.ui_data = ui_out.model_dump() if ui_out else None
+        else:
+            raw_pm = self.read_json_file(self.pm_output_path)
             try:
-                self.ui_data = self.read_json_file(self.ui_output_path)
+                self.pm_data = PMOutput.model_validate(raw_pm)
             except Exception as e:
-                self.logger.warning(f"Failed to parse optional ui_output.json: {e}")
+                raise ValidationError(f"Invalid pm_output.json format: {e}")
+
+            # Optional UI agent output
+            if self.ui_output_path and Path(self.ui_output_path).is_file():
+                try:
+                    self.ui_data = self.read_json_file(self.ui_output_path)
+                except Exception as e:
+                    self.logger.warning(f"Failed to parse optional ui_output.json: {e}")
+
 
     def generate(self) -> Dict[str, Any]:
         """Generate backend specification using LLM or rule-based fallback."""

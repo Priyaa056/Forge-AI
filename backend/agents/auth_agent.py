@@ -9,18 +9,26 @@ from backend.schemas.pm_schema import PMOutput
 from backend.schemas.backend_schema import BackendOutput
 from backend.schemas.db_schema import DBOutput
 from backend.schemas.auth_schema import AuthOutput
+from backend.artifacts.artifact_context import ArtifactContext
 from backend.exceptions import MissingInputError, ValidationError, GenerationError
 
 
 class AuthAgent(BaseAgent[AuthOutput]):
     """Agent responsible for generating JWT, Bcrypt, RBAC, and Auth Workflow specifications."""
 
-    def __init__(self,
-                 pm_output_path: str = "outputs/pm_output.json",
-                 backend_output_path: str = "outputs/backend_output.json",
-                 db_output_path: str = "outputs/db_output.json",
-                 output_filepath: str = "outputs/auth_output.json"):
-        super().__init__(output_schema_cls=AuthOutput, output_filepath=output_filepath)
+    def __init__(
+        self,
+        pm_output_path: str = "outputs/pm_output.json",
+        backend_output_path: str = "outputs/backend_output.json",
+        db_output_path: str = "outputs/db_output.json",
+        output_filepath: str = "outputs/auth_output.json",
+        artifact_context: Optional[ArtifactContext] = None,
+    ):
+        super().__init__(
+            output_schema_cls=AuthOutput,
+            output_filepath=output_filepath,
+            artifact_context=artifact_context,
+        )
         self.pm_output_path = pm_output_path
         self.backend_output_path = backend_output_path
         self.db_output_path = db_output_path
@@ -30,23 +38,29 @@ class AuthAgent(BaseAgent[AuthOutput]):
 
     def load_inputs(self) -> None:
         """Load and validate PM, Backend, and DB specifications."""
-        raw_pm = self.read_json_file(self.pm_output_path)
-        try:
-            self.pm_data = PMOutput.model_validate(raw_pm)
-        except Exception as e:
-            raise ValidationError(f"Invalid pm_output.json format: {e}")
+        if self.artifact_context:
+            self.pm_data = self.artifact_context.get_validated_content("pm", PMOutput)
+            self.backend_data = self.artifact_context.get_validated_content("backend", BackendOutput)
+            self.db_data = self.artifact_context.get_validated_content("db", DBOutput)
+        else:
+            raw_pm = self.read_json_file(self.pm_output_path)
+            try:
+                self.pm_data = PMOutput.model_validate(raw_pm)
+            except Exception as e:
+                raise ValidationError(f"Invalid pm_output.json format: {e}")
 
-        raw_backend = self.read_json_file(self.backend_output_path)
-        try:
-            self.backend_data = BackendOutput.model_validate(raw_backend)
-        except Exception as e:
-            raise ValidationError(f"Invalid backend_output.json format: {e}")
+            raw_backend = self.read_json_file(self.backend_output_path)
+            try:
+                self.backend_data = BackendOutput.model_validate(raw_backend)
+            except Exception as e:
+                raise ValidationError(f"Invalid backend_output.json format: {e}")
 
-        raw_db = self.read_json_file(self.db_output_path)
-        try:
-            self.db_data = DBOutput.model_validate(raw_db)
-        except Exception as e:
-            raise ValidationError(f"Invalid db_output.json format: {e}")
+            raw_db = self.read_json_file(self.db_output_path)
+            try:
+                self.db_data = DBOutput.model_validate(raw_db)
+            except Exception as e:
+                raise ValidationError(f"Invalid db_output.json format: {e}")
+
 
     def generate(self) -> Dict[str, Any]:
         """Generate Authentication specification using LLM or rule-based fallback."""

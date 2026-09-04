@@ -12,6 +12,7 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 
 from backend.exceptions import MissingInputError, ValidationError, GenerationError
+from backend.artifacts.artifact_context import ArtifactContext
 
 # Load environment variables
 env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -25,13 +26,22 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 class BaseAgent(ABC, Generic[T]):
     """Abstract Base Agent class enforcing standard lifecycle and validation contract."""
 
-    def __init__(self, output_schema_cls: Type[T], output_filepath: str):
+    def __init__(
+        self,
+        output_schema_cls: Type[T],
+        output_filepath: str,
+        artifact_context: Optional[ArtifactContext] = None,
+        pipeline_logger: Optional[Any] = None,
+    ):
         self.output_schema_cls = output_schema_cls
         self.output_filepath = Path(output_filepath)
+        self.artifact_context = artifact_context
+        self.pipeline_logger = pipeline_logger
         self.logger = logging.getLogger(self.__class__.__name__)
         self.inputs: Dict[str, Any] = {}
         self.generated_data: Optional[Dict[str, Any]] = None
         self.validated_output: Optional[T] = None
+
 
     def get_gemini_model(self) -> Optional[Any]:
         """Configure and return Gemini GenerativeModel if API key and USE_LLM are enabled."""

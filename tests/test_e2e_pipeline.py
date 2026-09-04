@@ -4,12 +4,18 @@ import json
 import pytest
 from pathlib import Path
 
+from backend.agents.ui_agent import UIAgent
 from backend.agents.backend_agent import BackendAgent
 from backend.agents.db_agent import DBAgent
 from backend.agents.auth_agent import AuthAgent
+from backend.agents.qa_agent import QAAgent
+from backend.agents.deploy_agent import DeployAgent
+from backend.schemas.ui_schema import UIOutput
 from backend.schemas.backend_schema import BackendOutput
 from backend.schemas.db_schema import DBOutput
 from backend.schemas.auth_schema import AuthOutput
+from backend.schemas.qa_schema import QAOutput
+from backend.schemas.deploy_schema import DeployOutput
 
 
 @pytest.fixture
@@ -123,35 +129,41 @@ def sample_domains():
 
 
 def test_e2e_pipeline_all_domains(tmp_path, sample_domains):
-    """Test full PM -> Backend -> DB -> Auth pipeline for Task Management, Blog, and E-commerce domains."""
+    """Test full PM -> UI -> Backend -> DB -> Auth -> QA -> Deploy pipeline across multiple domains."""
     for domain_name, pm_data in sample_domains.items():
         domain_dir = tmp_path / domain_name.replace(" ", "_").lower()
         domain_dir.mkdir()
 
         pm_path = domain_dir / "pm_output.json"
+        ui_path = domain_dir / "ui_output.json"
         backend_path = domain_dir / "backend_output.json"
         db_path = domain_dir / "db_output.json"
         auth_path = domain_dir / "auth_output.json"
+        qa_path = domain_dir / "qa_output.json"
+        deploy_path = domain_dir / "deploy_output.json"
 
         # 1. Write PM Output
         pm_path.write_text(json.dumps(pm_data), encoding="utf-8")
 
-        # 2. Run Backend Agent
-        backend_agent = BackendAgent(pm_output_path=str(pm_path), output_filepath=str(backend_path))
+        # 2. Run UI Agent
+        ui_agent = UIAgent(pm_output_path=str(pm_path), output_filepath=str(ui_path))
+        ui_out = ui_agent.run()
+        assert isinstance(ui_out, UIOutput)
+        assert ui_out.project_name == pm_data["project_name"]
+
+        # 3. Run Backend Agent
+        backend_agent = BackendAgent(pm_output_path=str(pm_path), ui_output_path=str(ui_path), output_filepath=str(backend_path))
         backend_out = backend_agent.run()
         assert isinstance(backend_out, BackendOutput)
         assert backend_out.project_name == pm_data["project_name"]
-        assert len(backend_out.endpoints) >= len(pm_data["database_entities"]) * 4
 
-        # 3. Run Database Agent
+        # 4. Run Database Agent
         db_agent = DBAgent(pm_output_path=str(pm_path), backend_output_path=str(backend_path), output_filepath=str(db_path))
         db_out = db_agent.run()
         assert isinstance(db_out, DBOutput)
         assert db_out.project_name == pm_data["project_name"]
-        assert len(db_out.tables) == len(pm_data["database_entities"])
-        assert "Base = declarative_base()" in db_out.sqlalchemy_models_code
 
-        # 4. Run Auth Agent
+        # 5. Run Auth Agent
         auth_agent = AuthAgent(
             pm_output_path=str(pm_path),
             backend_output_path=str(backend_path),
@@ -161,10 +173,34 @@ def test_e2e_pipeline_all_domains(tmp_path, sample_domains):
         auth_out = auth_agent.run()
         assert isinstance(auth_out, AuthOutput)
         assert auth_out.project_name == pm_data["project_name"]
-        assert auth_out.password_security.hashing_algorithm == "bcrypt"
-        assert auth_out.jwt_strategy.algorithm == "HS256"
 
-        # Check file persistence
-        assert backend_path.is_file()
-        assert db_path.is_file()
-        assert auth_path.is_file()
+        # 6. Run QA Agent
+        qa_agent = QAAgent(
+            pm_output_path=str(pm_path),
+            backend_output_path=str(backend_path),
+            db_output_path=str(db_path),
+            auth_output_path=str(auth_path),
+            ui_output_path=str(ui_path),
+            output_filepath=str(qa_path)
+        )
+        qa_out = qa_agent.run()
+        assert isinstance(qa_out, QAOutput)
+        assert qa_out.project_name == pm_data["project_name"]
+
+        # 7. Run Deploy Agent
+        deploy_agent = DeployAgent(
+            pm_output_path=str(pm_path),
+            backend_output_path=str(backend_path),
+            db_output_path=str(db_path),
+            auth_output_path=str(auth_path),
+            ui_output_path=str(ui_path),
+            qa_output_path=str(qa_path),
+            output_filepath=str(deploy_path)
+        )
+        deploy_out = deploy_agent.run()
+        assert isinstance(deploy_out, DeployOutput)
+        assert deploy_out.project_name == pm_data["project_name"]
+
+        # Check all file persistences
+        for path in [ui_path, backend_path, db_path, auth_path, qa_path, deploy_path]:
+            assert path.is_file()

@@ -8,17 +8,25 @@ from backend.agents.base_agent import BaseAgent
 from backend.schemas.pm_schema import PMOutput
 from backend.schemas.backend_schema import BackendOutput
 from backend.schemas.db_schema import DBOutput
+from backend.artifacts.artifact_context import ArtifactContext
 from backend.exceptions import MissingInputError, ValidationError, GenerationError
 
 
 class DBAgent(BaseAgent[DBOutput]):
     """Agent responsible for generating PostgreSQL relational architecture, SQLAlchemy 2.x models, and Alembic metadata."""
 
-    def __init__(self,
-                 pm_output_path: str = "outputs/pm_output.json",
-                 backend_output_path: str = "outputs/backend_output.json",
-                 output_filepath: str = "outputs/db_output.json"):
-        super().__init__(output_schema_cls=DBOutput, output_filepath=output_filepath)
+    def __init__(
+        self,
+        pm_output_path: str = "outputs/pm_output.json",
+        backend_output_path: str = "outputs/backend_output.json",
+        output_filepath: str = "outputs/db_output.json",
+        artifact_context: Optional[ArtifactContext] = None,
+    ):
+        super().__init__(
+            output_schema_cls=DBOutput,
+            output_filepath=output_filepath,
+            artifact_context=artifact_context,
+        )
         self.pm_output_path = pm_output_path
         self.backend_output_path = backend_output_path
         self.pm_data: Optional[PMOutput] = None
@@ -26,17 +34,22 @@ class DBAgent(BaseAgent[DBOutput]):
 
     def load_inputs(self) -> None:
         """Load and validate PM and Backend specifications."""
-        raw_pm = self.read_json_file(self.pm_output_path)
-        try:
-            self.pm_data = PMOutput.model_validate(raw_pm)
-        except Exception as e:
-            raise ValidationError(f"Invalid pm_output.json format: {e}")
+        if self.artifact_context:
+            self.pm_data = self.artifact_context.get_validated_content("pm", PMOutput)
+            self.backend_data = self.artifact_context.get_validated_content("backend", BackendOutput)
+        else:
+            raw_pm = self.read_json_file(self.pm_output_path)
+            try:
+                self.pm_data = PMOutput.model_validate(raw_pm)
+            except Exception as e:
+                raise ValidationError(f"Invalid pm_output.json format: {e}")
 
-        raw_backend = self.read_json_file(self.backend_output_path)
-        try:
-            self.backend_data = BackendOutput.model_validate(raw_backend)
-        except Exception as e:
-            raise ValidationError(f"Invalid backend_output.json format: {e}")
+            raw_backend = self.read_json_file(self.backend_output_path)
+            try:
+                self.backend_data = BackendOutput.model_validate(raw_backend)
+            except Exception as e:
+                raise ValidationError(f"Invalid backend_output.json format: {e}")
+
 
     def generate(self) -> Dict[str, Any]:
         """Generate Database specification using LLM or rule-based fallback."""
