@@ -141,6 +141,7 @@ def render_factories(bp: Blueprint) -> str:
 
 def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
     creator = _creator(e)
+    fixture_args = creator if creator == "admin_headers" else f"{creator}, admin_headers"
     path = e.api_path
     mk = f"make_{e.snake}"
     editable = [f for f in e.editable_fields if f.kind != "reference"]
@@ -154,14 +155,14 @@ def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
         f'    assert client.get("{path}").status_code == 401',
         "",
         "",
-        f"def test_create_and_get(client, {creator}, admin_headers):",
+        f"def test_create_and_get(client, {fixture_args}):",
         f"    created = {mk}(client, {creator}, admin_headers)",
         f'    response = client.get(f"{path}/{{created[\'id\']}}", headers={creator})',
         "    assert response.status_code == 200",
         "    assert response.json() == created",
         "",
         "",
-        f"def test_list_and_pagination(client, {creator}, admin_headers):",
+        f"def test_list_and_pagination(client, {fixture_args}):",
         f"    {mk}(client, {creator}, admin_headers)",
         f"    {mk}(client, {creator}, admin_headers)",
         f'    page = client.get("{path}", params={{"limit": 1}}, headers={creator})',
@@ -174,7 +175,7 @@ def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
     if search:
         lines += [
             "",
-            f"def test_search(client, {creator}, admin_headers):",
+            f"def test_search(client, {fixture_args}):",
             f'    created = {mk}(client, {creator}, admin_headers, {search.name}="Searchable zebra marker")',
             f'    found = client.get("{path}", params={{"q": "zebra marker"}}, headers={creator}).json()',
             "    assert any(item['id'] == created['id'] for item in found['items'])",
@@ -187,20 +188,20 @@ def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
         other = enum.enum_values[-1]
         lines += [
             "",
-            f"def test_filter_by_{enum.name}(client, {creator}, admin_headers):",
+            f"def test_filter_by_{enum.name}(client, {fixture_args}):",
             f'    created = {mk}(client, {creator}, admin_headers, {enum.name}="{other}")',
             f'    result = client.get("{path}", params={{"{enum.name}": "{other}", "limit": 200}}, headers={creator}).json()',
             "    assert any(item['id'] == created['id'] for item in result['items'])",
             f"    assert all(item['{enum.name}'] == \"{other}\" for item in result['items'])",
             "",
             "",
-            f"def test_rejects_invalid_{enum.name}(client, {creator}, admin_headers):",
+            f"def test_rejects_invalid_{enum.name}(client, {fixture_args}):",
             f'    created = {mk}(client, {creator}, admin_headers)',
             f'    response = client.put(f"{path}/{{created[\'id\']}}", json={{"{enum.name}": "not-a-valid-value"}}, headers={creator})',
             "    assert response.status_code == 422",
             "",
         ]
-    required = [f for f in editable if f.required]
+    required = [f for f in editable if f.required and f.default is None and f.kind != "boolean"]
     if required:
         lines += [
             "",
@@ -213,7 +214,7 @@ def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
     if upd:
         lines += [
             "",
-            f"def test_update(client, {creator}, admin_headers):",
+            f"def test_update(client, {fixture_args}):",
             f"    created = {mk}(client, {creator}, admin_headers)",
             f'    response = client.put(f"{path}/{{created[\'id\']}}", json={{"{upd.name}": "Updated by QA"}}, headers={creator})',
             "    assert response.status_code == 200, response.text",
@@ -225,7 +226,7 @@ def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
         bad = numeric.min_value - 1
         lines += [
             "",
-            f"def test_rejects_{numeric.name}_below_minimum(client, {creator}, admin_headers):",
+            f"def test_rejects_{numeric.name}_below_minimum(client, {fixture_args}):",
             f"    created = {mk}(client, {creator}, admin_headers)",
             f'    response = client.put(f"{path}/{{created[\'id\']}}", json={{"{numeric.name}": {bad}}}, headers={creator})',
             "    assert response.status_code == 422",
@@ -234,7 +235,7 @@ def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
     for f in e.reference_fields:
         lines += [
             "",
-            f"def test_rejects_unknown_{f.name}(client, {creator}, admin_headers):",
+            f"def test_rejects_unknown_{f.name}(client, {fixture_args}):",
             f"    created = {mk}(client, {creator}, admin_headers)",
             f'    response = client.put(f"{path}/{{created[\'id\']}}", json={{"{f.name}": 999999}}, headers={creator})',
             "    assert response.status_code == 422",
@@ -275,7 +276,7 @@ def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
     deleter = "admin_headers" if e.access != "owner" else creator
     lines += [
         "",
-        f"def test_delete(client, {creator}, admin_headers):",
+        f"def test_delete(client, {fixture_args}):",
         f"    created = {mk}(client, {creator}, admin_headers)",
         f'    assert client.delete(f"{path}/{{created[\'id\']}}", headers={deleter}).status_code == 200',
         f'    assert client.get(f"{path}/{{created[\'id\']}}", headers={deleter}).status_code == 404',
