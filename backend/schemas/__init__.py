@@ -5,8 +5,8 @@ from .ui_schema import UIOutput, PageComponentSpec, UIComponentSpec
 from .backend_schema import BackendOutput, EndpointSpec, RequestSchemaSpec, ResponseSchemaSpec, ServiceLayerSpec, RepositoryLayerSpec
 from .db_schema import DBOutput, TableSpec, ColumnSpec, ForeignKeySpec, RelationshipSpec, IndexSpec, AlembicMetadata
 from .auth_schema import AuthOutput, AuthEndpointSpec, RBACRoleSpec, PasswordSecuritySpec, JWTStrategySpec, UserEntityRequirement
-from .qa_schema import QAOutput, TestSuiteSpec
-from .deploy_schema import DeployOutput
+from .qa_schema import QAOutput, QAErrorDetail, QAError
+from .deploy_schema import DeployOutput, HealthCheckResult, DockerConfigSpec
 
 __all__ = [
     "PMOutput",
@@ -36,6 +36,10 @@ __all__ = [
     "JWTStrategySpec",
     "UserEntityRequirement",
     "QAOutput",
-    "TestSuiteSpec",
+    "QAErrorDetail",
+    "QAError",
     "DeployOutput",
+    "HealthCheckResult",
+    "DockerConfigSpec",
 ]
+
