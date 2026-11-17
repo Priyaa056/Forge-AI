@@ -3,6 +3,7 @@
 import json
 import re
 import logging
+import threading
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -70,6 +71,7 @@ class PipelineLogger:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.log_filepath = self.log_dir / log_filename
         self._events: List[ExecutionEvent] = []
+        self._lock = threading.Lock()
 
     def log_event(self, event: ExecutionEvent) -> ExecutionEvent:
         """Sanitize, persist to JSON Lines sink, and record execution event."""
@@ -79,16 +81,44 @@ class PipelineLogger:
         if event.error_message:
             event.error_message = sanitize_secret(event.error_message)
 
-        self._events.append(event)
-
-        # Write machine-readable JSON record
-        try:
-            with open(self.log_filepath, "a", encoding="utf-8") as f:
-                f.write(event.model_dump_json() + "\n")
-        except Exception as e:
-            logger.error(f"Failed to write execution log event: {e}")
+        with self._lock:
+            self._events.append(event)
+            # Write machine-readable JSON record
+            try:
+                with open(self.log_filepath, "a", encoding="utf-8") as f:
+                    f.write(event.model_dump_json() + "\n")
+            except Exception as e:
+                logger.error(f"Failed to write execution log event: {e}")
 
         return event
+
+    def log_agent_message(self, run_id: str, project_id: str, agent_name: str, message: str,
+                          level: str = "info") -> ExecutionEvent:
+        """Structured agent log line (what the agent decided/produced) shown in the monitoring feed."""
+        return self.log_event(ExecutionEvent(
+            run_id=run_id, project_id=project_id, event_type=EventType.AGENT_LOG, agent_name=agent_name,
+            pipeline_stage=agent_name, status="RUNNING", message=message, level=level,
+        ))
+
+    def log_agent_retrying(self, run_id: str, project_id: str, agent_name: str, attempt: int,
+                           error_type: str, error_message: str) -> ExecutionEvent:
+        return self.log_event(ExecutionEvent(
+            run_id=run_id, project_id=project_id, event_type=EventType.AGENT_RETRYING, agent_name=agent_name,
+            pipeline_stage=agent_name, status="RETRYING", error_type=error_type, error_message=error_message,
+            message=f"Agent '{agent_name}' failed on attempt {attempt}; retrying", level="warning",
+        ))
+
+    def log_agent_skipped(self, run_id: str, project_id: str, agent_name: str, reason: str) -> ExecutionEvent:
+        return self.log_event(ExecutionEvent(
+            run_id=run_id, project_id=project_id, event_type=EventType.AGENT_SKIPPED, agent_name=agent_name,
+            pipeline_stage=agent_name, status="SKIPPED", message=reason, level="warning",
+        ))
+
+    def log_version_promoted(self, run_id: str, project_id: str, message: str) -> ExecutionEvent:
+        return self.log_event(ExecutionEvent(
+            run_id=run_id, project_id=project_id, event_type=EventType.VERSION_PROMOTED, status="COMPLETED",
+            message=message,
+        ))
 
     def log_pipeline_started(
         self,

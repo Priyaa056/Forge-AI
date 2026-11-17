@@ -73,6 +73,7 @@ class StylingRequirements(BaseModel):
     font_family: str = "Inter, sans-serif"
     design_system_notes: str = "Modern clean UI"
     css_approach: str = "Vanilla CSS"
+    tagline: str = ""
 
 
 class UIOutput(BaseModel):

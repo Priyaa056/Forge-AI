@@ -29,6 +29,7 @@ class ArtifactContext:
         current_agent: Optional[str] = None,
         user_prompt: str = "",
         input_artifact_ids: Optional[List[str]] = None,
+        strict_run: bool = False,
     ):
         self.artifact_manager = artifact_manager
         self.project_id = project_id
@@ -36,6 +37,9 @@ class ArtifactContext:
         self.current_agent = current_agent
         self.user_prompt = user_prompt
         self.input_artifact_ids = input_artifact_ids or []
+        # When strict_run is True, agents may only consume artifacts declared as inputs of this
+        # run (or produced in this run). This prevents stale artifacts from earlier runs leaking in.
+        self.strict_run = strict_run
 
     def get_latest_artifact(self, agent_name: str) -> Optional[Artifact]:
         """Retrieve latest artifact for a specific agent in the project."""
@@ -67,9 +71,20 @@ class ArtifactContext:
         If optional is True and artifact is missing, returns None.
         If artifact status is FAILED or content fails validation, raises ArtifactValidationError.
         """
-        artifact = self.get_artifact_by_id(agent_name_or_id)
+        artifact = None
+        for art_id in self.input_artifact_ids:
+            candidate = self.get_artifact_by_id(art_id)
+            if candidate and candidate.agent_name == agent_name_or_id:
+                artifact = candidate
         if not artifact:
-            artifact = self.get_latest_artifact(agent_name_or_id)
+            artifact = self.get_artifact_by_id(agent_name_or_id)
+            if (artifact and self.strict_run and artifact.artifact_id not in self.input_artifact_ids
+                    and artifact.run_id != self.run_id):
+                artifact = None
+        if not artifact:
+            latest = self.get_latest_artifact(agent_name_or_id)
+            if latest and (not self.strict_run or latest.run_id == self.run_id):
+                artifact = latest
 
         if not artifact:
             if optional:

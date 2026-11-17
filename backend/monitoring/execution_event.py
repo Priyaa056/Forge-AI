@@ -20,6 +20,10 @@ class EventType(str, Enum):
     ROLLBACK_STARTED = "ROLLBACK_STARTED"
     ROLLBACK_COMPLETED = "ROLLBACK_COMPLETED"
     ROLLBACK_FAILED = "ROLLBACK_FAILED"
+    AGENT_LOG = "AGENT_LOG"
+    AGENT_RETRYING = "AGENT_RETRYING"
+    AGENT_SKIPPED = "AGENT_SKIPPED"
+    VERSION_PROMOTED = "VERSION_PROMOTED"
 
 
 class ExecutionEvent(BaseModel):
@@ -38,3 +42,4 @@ class ExecutionEvent(BaseModel):
     message: Optional[str] = None
     error_type: Optional[str] = None
     error_message: Optional[str] = None
+    level: Optional[str] = None

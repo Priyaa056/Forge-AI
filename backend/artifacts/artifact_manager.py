@@ -32,7 +32,8 @@ SENSITIVE_KEY_PATTERNS = [
 
 # Sensitive value regex patterns
 SENSITIVE_VALUE_REGEXES = [
-    re.compile(r"sk-[a-zA-Z0-9_-]{16,}"),
+    # Word boundary: "task-manager-frontend" must not look like an "sk-..." API key.
+    re.compile(r"(?<![A-Za-z0-9])sk-[a-zA-Z0-9_-]{16,}"),
     re.compile(r"AIza[0-9A-Za-z-_]{35}"),
     re.compile(r"Bearer\s+eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+"),
     re.compile(r"eyJ[A-Za-z0-9-_=]{10,}\.[A-Za-z0-9-_=]{10,}"),

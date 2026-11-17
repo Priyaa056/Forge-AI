@@ -51,6 +51,8 @@ class EndpointSpec(BaseModel):
     parameters: List[ParameterSpec] = Field(default_factory=list, description="Path and query parameters")
     business_logic_summary: str = Field(..., description="Description of business logic executed")
     is_file_upload: bool = Field(default=False, description="Whether endpoint handles multipart file uploads")
+    required_permission: Optional[str] = Field(default=None, description="RBAC permission enforced by the Auth agent e.g. tasks:create")
+    row_level_scope: Optional[str] = Field(default=None, description="Row-level policy e.g. 'owner' (non-admins only see their own records)")
 
 
 class ServiceMethodSpec(BaseModel):
@@ -98,3 +100,6 @@ class BackendOutput(BaseModel):
     repository_layer: List[RepositoryLayerSpec] = Field(default_factory=list, description="Repository layer specifications")
     global_dependencies: List[str] = Field(default_factory=list, description="FastAPI dependencies e.g. get_db, get_current_user")
     error_handlers: List[ErrorHandlerSpec] = Field(default_factory=list, description="Configured error handlers")
+    base_url: str = Field(default="/api", description="API base path")
+    generated_files: List[str] = Field(default_factory=list, description="Source files written by the Backend agent")
+    ui_contract_coverage: Dict[str, Any] = Field(default_factory=dict, description="Result of checking the UI agent's API requirements against this API")

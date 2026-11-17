@@ -1,6 +1,11 @@
-"""Pydantic V2 schemas for QA Agent Output validation."""
+"""Pydantic V2 schemas for the QA Agent output (``qa_report.json``).
 
-from typing import List, Optional, Any
+Combines the structured error model from feature/qa-deploy (QAError, severity/agent classification)
+with per-check and per-test results produced by actually executing the generated application's tests.
+"""
+
+from typing import Any, List, Optional
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -18,22 +23,19 @@ class QAError(BaseModel):
 
     @property
     def error_type(self) -> str:
-        """Backward compatibility alias for type."""
         return self.type
 
     @property
     def affected_component(self) -> str:
-        """Backward compatibility alias for component."""
         return self.component
 
     @property
     def suggested_fix(self) -> Optional[str]:
-        """Backward compatibility alias for suggestion."""
         return self.suggestion
 
 
 class QAErrorDetail(QAError):
-    """Detailed information on a single test error (Backward compatible model)."""
+    """Detailed information on a single test error (backward compatible model)."""
 
     @model_validator(mode="before")
     @classmethod
@@ -45,30 +47,60 @@ class QAErrorDetail(QAError):
                 data["component"] = data["affected_component"]
             if "suggested_fix" in data and "suggestion" not in data:
                 data["suggestion"] = data["suggested_fix"]
-            if "id" not in data:
-                data["id"] = "QA-000"
-            if "severity" not in data:
-                data["severity"] = "HIGH"
-            if "agent" not in data:
-                data["agent"] = "BackendAgent"
+            data.setdefault("id", "QA-000")
+            data.setdefault("severity", "HIGH")
+            data.setdefault("agent", "BackendAgent")
         return data
+
+
+class QACheck(BaseModel):
+    """One executed verification step."""
+    name: str
+    category: str = Field(default="backend", description="static | backend | database | integration | frontend")
+    status: str = Field(..., description="passed | failed | skipped")
+    duration_ms: float = 0.0
+    details: str = ""
+
+
+class TestCaseResult(BaseModel):
+    suite: str
+    name: str
+    status: str = Field(..., description="passed | failed | error | skipped")
+    duration_ms: float = 0.0
+    message: Optional[str] = None
+
+
+class TestSuiteSpec(BaseModel):
+    """Aggregated results for one generated test module."""
+    name: str
+    test_type: str = Field(default="integration")
+    tests_count: int = 0
+    passed_count: int = 0
+    failed_count: int = 0
 
 
 class QAOutput(BaseModel):
     """QA Agent JSON output schema."""
 
+    project_name: Optional[str] = Field(default=None, description="Project under test")
     status: str = Field(..., description="Overall QA status: 'passed' or 'failed'")
     tests_run: int = Field(default=0, description="Total number of tests executed")
     tests_passed: int = Field(default=0, description="Number of tests passed")
     tests_failed: int = Field(default=0, description="Number of tests failed")
     errors: List[QAError] = Field(default_factory=list, description="List of structured QA error objects")
     critical_errors: int = Field(default=0, description="Number of critical severity errors detected")
-    warnings: int = Field(default=0, description="Number of warning severity (HIGH/MEDIUM/LOW) errors detected")
-    score: float = Field(default=100.0, description="Quality assurance score percentage (0-100)")
-    deployment_ready: bool = Field(default=True, description="Whether code is ready for deployment")
-    next_step: str = Field(default="Deployment ready", description="Recommended next action")
-
-    # Backward compatibility fields
+    warnings: int = Field(default=0, description="Number of non-critical errors detected")
+    score: float = Field(default=0.0, description="Percentage of executed checks/tests that passed (0-100)")
+    deployment_ready: bool = Field(default=False, description="Whether code is ready for deployment")
+    next_step: str = Field(default="", description="Recommended next action")
     affected_component: Optional[str] = Field(default=None, description="Primary component affected if failures occurred")
-    fix_required: bool = Field(default=False, description="Whether self-healing fix loop must be triggered")
+    fix_required: bool = Field(default=False, description="Whether a repair/regeneration is required")
     execution_timestamp: Optional[str] = Field(default=None, description="ISO timestamp of test execution")
+
+    checks: List[QACheck] = Field(default_factory=list, description="Executed verification steps")
+    test_suites: List[TestSuiteSpec] = Field(default_factory=list, description="Per-module test results")
+    test_results: List[TestCaseResult] = Field(default_factory=list, description="Per-test results")
+    frontend_build: str = Field(default="skipped", description="passed | failed | skipped")
+    generated_test_files: List[str] = Field(default_factory=list)
+    summary: Optional[str] = Field(default=None, description="QA report summary")
+    repair_recommendation: Optional[str] = Field(default=None, description="Responsible agent and action from the self-healing manager")
