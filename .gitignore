@@ -1,12 +1,25 @@
+# Secrets / local environment
 .env
+*.env
+!.env.example
 backend.env
 backend/backend.env
+
+# Python
 __pycache__/
-venv/
 *.pyc
+venv/
+.venv/
+.pytest_cache/
+
+# Node
 node_modules/
 dist/
 build/
-.pytest_cache/
-*.db
+
+# Runtime data produced by FORGE AI (generated projects, artifacts, logs)
+workspace/
+outputs/
+data/
 backend/data/
+*.db
