@@ -45,12 +45,13 @@ class PreviewManager:
         app_root = self.store.current_dir(project_id)
         message = None
         if not (app_root / "frontend" / "dist" / "index.html").is_file():
-            ready, msg = toolchain.ensure_toolchain()
-            if ready:
+            # Normally QA has already built frontend/dist. Build here only if the shared toolchain exists;
+            # never trigger a long npm install from a preview request.
+            if toolchain.is_ready():
                 ok, out = toolchain.build_frontend(app_root / "frontend")
                 message = "Frontend built" if ok else f"Frontend build failed: {out[-300:]}"
             else:
-                message = f"Frontend not built: {msg}. API is still available at /docs."
+                message = "Frontend bundle not available (toolchain not installed); the API is available at /docs."
         data_dir = self.store.project_dir(project_id) / "preview_data" / f"v{version}"
         proc = GeneratedAppProcess(app_root, data_dir=data_dir, admin_email=project["preview_admin"]["email"],
                                    admin_password=project["preview_admin"]["password"])

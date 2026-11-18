@@ -121,6 +121,12 @@ STAGE_TITLES = {
 
 NON_RETRYABLE = (PromptValidationError, ContractValidationError)
 
+# Success gates: a stage whose output reports failure fails the run even though the output is stored.
+STAGE_GATES = {
+    PipelineStage.QA: QAAgent.is_success,
+    PipelineStage.DEPLOY: DeployAgent.is_success,
+}
+
 
 class StageGateFailed(Exception):
     """Raised when an agent ran to completion but its result does not meet the success gate (QA/Deploy)."""
@@ -261,11 +267,13 @@ class ForgePipeline:
             }
             validated = schema_cls.model_validate(self.agent_handlers[stage](handler_context))
             self._spec_path(stage).write_text(validated.model_dump_json(indent=2), encoding="utf-8")
-            return validated, {"generation_mode": "custom_handler", "generated_files": [], "notes": []}, True
+            gate = STAGE_GATES.get(stage)
+            return (validated, {"generation_mode": "custom_handler", "generated_files": [], "notes": []},
+                    gate(validated) if gate else True)
         agent = self._build_agent(stage, context)
         validated = agent.run()
-        gate = getattr(agent, "is_success", None)
-        succeeded = gate(validated) if callable(gate) else True
+        gate = STAGE_GATES.get(stage)
+        succeeded = gate(validated) if gate else True
         return validated, agent.result_metadata(), succeeded
 
     # ------------------------------------------------------------------ stage execution

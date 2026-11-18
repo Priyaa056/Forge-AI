@@ -46,3 +46,4 @@ class DeployOutput(BaseModel):
     instructions: List[str] = Field(default_factory=list, description="How to run/deploy the generated app")
     logs: List[str] = Field(default_factory=list, description="Deployment process logs")
     affected_component: Optional[str] = Field(default=None, description="Affected component if deployment failed")
+    summary: Optional[str] = Field(default=None, description="Human readable readiness summary")

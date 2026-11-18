@@ -217,7 +217,15 @@ def _to_bentity(e) -> BEntity:
 
 
 def build_blueprint(pm: PMOutput) -> Blueprint:
-    """Build the blueprint from a *normalized* PM output (see pm_analysis.normalize_requirements)."""
+    """Build the blueprint from a PM output.
+
+    Outputs that were not normalized (e.g. hand-written or legacy ``pm_output.json`` files without the
+    system User entity) are normalized first so every downstream agent sees the same conventions.
+    """
+    if not any(e.is_system or e.name == "User" for e in pm.database_entities):
+        from backend.agents.pm_analysis import normalize_requirements
+
+        pm = normalize_requirements(pm)
     user = None
     entities: List[BEntity] = []
     for e in pm.database_entities:

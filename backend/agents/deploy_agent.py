@@ -114,7 +114,13 @@ class DeployAgent(BaseAgent[DeployOutput]):
         add("PostgreSQL migration present", migration.is_file(), str(migration.relative_to(root)) if migration.is_file() else "missing")
 
         dist = root / "frontend" / "dist" / "index.html"
-        add("Frontend production bundle", dist.is_file(), "frontend/dist built by QA" if dist.is_file() else "frontend/dist missing")
+        if dist.is_file():
+            add("Frontend production bundle", True, "frontend/dist built and verified by QA")
+        elif self.qa_data.frontend_build == "skipped":
+            checks.append({"name": "Frontend production bundle", "status": "skipped",
+                           "details": "QA skipped the frontend build; the frontend Docker image builds it with npm"})
+        else:
+            add("Frontend production bundle", False, "frontend/dist missing")
         return checks
 
     def _health_check(self, root: Path) -> Dict[str, Any]:
@@ -184,8 +190,13 @@ class DeployAgent(BaseAgent[DeployOutput]):
                 self.log(f"Health check {r['endpoint']}: {r['status_code']} ({r['status']}, {r['response_time_ms']} ms)",
                          "info" if r["status"] == "healthy" else "warning")
 
-        failed = [c for c in readiness if c["status"] == "failed"] + [r for r in health["results"] if r["status"] != "healthy"]
+        failed = [c["name"] for c in readiness if c["status"] == "failed"] + [
+            f"{r['endpoint']} -> {r['status_code']}" for r in health["results"] if r["status"] != "healthy"]
         ready = not failed and (bool(health["results"]) or not self.run_health_check)
+        passed_health = sum(1 for r in health["results"] if r["status"] == "healthy")
+        summary = (f"Deployment ready: {passed_health}/{len(health['results'])} live health checks passed; "
+                   f"{sum(1 for c in readiness if c['status'] == 'passed')}/{len(readiness)} readiness checks passed"
+                   if ready else "Not deployment ready: " + "; ".join(failed))
         return {
             "project_name": bp.project_name,
             "status": "success" if ready else "failed",
@@ -208,6 +219,7 @@ class DeployAgent(BaseAgent[DeployOutput]):
             ],
             "logs": health["logs"],
             "affected_component": None if ready else "deployment",
+            "summary": summary,
         }
 
     def emit_code(self, output: DeployOutput) -> List[str]:
