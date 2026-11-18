@@ -364,21 +364,29 @@ class PipelineLogger:
 
     def read_logs_from_file(self) -> List[ExecutionEvent]:
         """Read and parse all execution events from persistent JSON Lines file."""
-        events: List[ExecutionEvent] = []
         if not self.log_filepath.exists():
-            return events
-
-        with open(self.log_filepath, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                    events.append(ExecutionEvent.model_validate(data))
-                except Exception as e:
-                    logger.error(f"Failed to parse log line: {e}")
-        return events
+            return []
+        # Incremental read: the JSONL sink is append-only, so only parse bytes added since the last call.
+        with self._lock:
+            cache = getattr(self, "_file_cache", None)
+            size = self.log_filepath.stat().st_size
+            if cache is None or size < cache["offset"]:
+                cache = self._file_cache = {"offset": 0, "events": []}
+            if size > cache["offset"]:
+                with open(self.log_filepath, "rb") as f:
+                    f.seek(cache["offset"])
+                    chunk = f.read()
+                complete = chunk[: chunk.rfind(b"\n") + 1]
+                cache["offset"] += len(complete)
+                for raw in complete.decode("utf-8", errors="replace").splitlines():
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        cache["events"].append(ExecutionEvent.model_validate(json.loads(raw)))
+                    except Exception as e:
+                        logger.error(f"Failed to parse log line: {e}")
+            return list(cache["events"])
 
     def get_query_service(self):
         """Return a MonitoringService instance linked to this logger."""

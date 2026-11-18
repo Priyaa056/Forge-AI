@@ -47,6 +47,8 @@ class LocalJsonArtifactStore(BaseArtifactStore):
     def __init__(self, storage_dir: str = "data/artifacts"):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        # Artifacts are write-once (rollback creates new versions), so parsed files can be cached by path.
+        self._cache: dict = {}
 
     def _get_artifact_path(self, artifact: Artifact) -> Path:
         proj_dir = self.storage_dir / artifact.project_id
@@ -65,13 +67,19 @@ class LocalJsonArtifactStore(BaseArtifactStore):
             return artifacts
 
         for json_file in self.storage_dir.glob("**/*.json"):
+            cached = self._cache.get(json_file)
+            if cached is not None:
+                artifacts.append(cached)
+                continue
             try:
                 with open(json_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                artifacts.append(Artifact.model_validate(data))
+                artifact = Artifact.model_validate(data)
             except Exception:
                 # Ignore corrupt/non-artifact files
                 continue
+            self._cache[json_file] = artifact
+            artifacts.append(artifact)
         return artifacts
 
     def get(self, artifact_id: str) -> Optional[Artifact]:
