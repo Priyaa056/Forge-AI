@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import robot from "@/assets/robot.png";
 import { Logo, ThemeToggle, btnPrimary, btnGhost } from "@/components/brand";
+import { SessionLinks } from "@/components/SessionLinks";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -53,8 +54,7 @@ function Index() {
           </nav>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Link to="/login" className="hidden px-3 text-sm font-semibold sm:block">Log in</Link>
-            <Link to="/signup" className={`${btnPrimary} px-4 py-2`}>Sign up</Link>
+            <SessionLinks />
           </div>
         </div>
       </header>

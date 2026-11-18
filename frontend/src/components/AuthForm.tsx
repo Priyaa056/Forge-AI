@@ -1,10 +1,13 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Eye, EyeOff, Info, Loader2 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { useAuth } from "@/lib/auth";
 import { Logo, ThemeToggle, btnPrimary } from "./brand";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const signup = mode === "signup";
+  const auth = useAuth();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -12,18 +15,27 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const submit = (e: FormEvent) => {
+  // Already signed in (e.g. "Start Building" from the landing page): go straight to the dashboard.
+  useEffect(() => {
+    if (auth.status === "authenticated") void navigate({ to: "/app" });
+  }, [auth.status, navigate]);
+
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     if (!/^\S+@\S+\.\S+$/.test(email)) return setError("Enter a valid email address.");
     if (pw.length < 8) return setError("Password must be at least 8 characters.");
     if (signup && pw !== pw2) return setError("Passwords don't match.");
     setLoading(true);
-    // No auth backend is connected yet — do not pretend sign-in succeeded.
-    setTimeout(() => {
+    try {
+      if (signup) await auth.signup(email, pw);
+      else await auth.login(email, pw);
+      await navigate({ to: "/app" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    } finally {
       setLoading(false);
-      setError("Sign-in isn't connected yet. Connect the FORGE AI authentication service to enable this.");
-    }, 400);
+    }
   };
 
   const field =
@@ -68,7 +80,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
           </Link>
         </p>
         <p className="mt-5 flex gap-2 rounded-lg bg-accent px-3 py-2 text-xs text-accent-foreground">
-          <Info className="mt-0.5 size-3.5 shrink-0" /> Authentication backend not connected yet — password recovery will appear once it is.
+          <Info className="mt-0.5 size-3.5 shrink-0" /> Password recovery isn't available yet — keep your password somewhere safe.
         </p>
       </form>
     </div>

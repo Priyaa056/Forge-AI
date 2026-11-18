@@ -2,19 +2,20 @@
 
 FORGE AI turns a natural-language application idea into a **working, tested, deployable full-stack
 application** (React + FastAPI + SQLAlchemy/PostgreSQL + JWT auth + Docker). Seven specialised
-agents collaborate through versioned, validated artifacts under a central orchestrator. A monitoring
-dashboard shows every step, and stable versions can be rolled back.
+agents collaborate through versioned, validated artifacts under a central orchestrator. The FORGE AI
+web app (our original Lovable design) shows every step live, and stable versions can be rolled back.
 
 | Objective | Implemented as |
 |---|---|
 | 1. Multi-agent orchestration | 7 agents (PM, UI, Backend, DB, Auth, QA, Deploy), dependency-ordered pipeline, artifact contracts with lineage, cross-agent contract validation, retries, failure isolation (`backend/services/pipeline.py`) |
 | 2. Full-stack generation | Each agent writes the project files it owns. QA **executes** the generated test suite and a real `vite build`. Deploy starts the app and health-checks it. Live preview (`backend/codegen/`, `backend/agents/`) |
-| 3. Monitoring, logging and rollback | Structured JSONL events, live progress API and dashboard, per-agent logs, artifact versioning, persisted project/run history, checksum-verified promotion and rollback of files **and** artifacts (`backend/monitoring/`, `backend/services/project_store.py`) |
+| 3. Monitoring, logging and rollback | Structured JSONL events, live progress API and web workspace, per-agent logs, artifact versioning, persisted project/run history, checksum-verified promotion and rollback of files **and** artifacts (`backend/monitoring/`, `backend/services/project_store.py`) |
 
 ## Architecture
 
 ```
-dashboard/ (React+TS+Tailwind)  --HTTP-->  backend/main.py (FastAPI platform API)
+frontend/ (Lovable design:          --HTTP-->  backend/main.py (FastAPI platform API: accounts,
+  TanStack Start, React 19, Tailwind 4)          projects, runs, artifacts, previews)
                                                |
                                     services/run_manager.py   (background runs, promotion)
                                                |
@@ -32,7 +33,7 @@ artifacts/ (versioned, lineage)   logs/pipeline_execution.jsonl   projects/<id>/
 | Agent | Consumes | Produces (artifact) | Writes (files it owns) |
 |---|---|---|---|
 | **PM** | user prompt | `requirements.json`: entities, fields, relations, access policies, roles, functional/non-functional requirements, dependencies, development plan | `docs/REQUIREMENTS.md` |
-| **UI** | requirements | `ui_spec.json`: pages, routes, forms, components, API requirements, theme | `frontend/` React 18 + Vite SPA: routing, layout, CRUD pages with search/filters/pagination, dashboard, admin dashboard |
+| **UI** | requirements | `ui_spec.json`: pages, routes, forms, components, API requirements, theme | generated app's `frontend/`: React 18 + Vite SPA with routing, layout, CRUD pages with search/filters/pagination, dashboard, admin dashboard |
 | **Backend** | requirements, UI spec | `api_spec.json`: endpoints, schemas, permissions, row-level scopes. **Fails if the UI needs an endpoint the API does not provide.** | `backend/app/main.py`, `schemas.py`, `routers/*` (validation, ownership, reference integrity, 409 on conflicts) |
 | **Database** | requirements, API spec | `database_schema.json`: tables, columns, FKs, CHECK/UNIQUE constraints, indexes. **Fails if an API field has no column.** | `models.py` (SQLAlchemy 2), `database.py`, `migrations/001_initial_schema.sql` (PostgreSQL) |
 | **Auth** | requirements, API spec, DB schema | `auth_spec.json`: PBKDF2 policy, JWT strategy, RBAC matrix derived from endpoint permissions | `security.py` (hashing, HS256 JWT, `require_permission`), auth + user-management routers, admin seed, React auth context and login/register pages |
@@ -44,11 +45,25 @@ PostgreSQL DDL compilation, the generated pytest suite, frontend import resoluti
 A failing check fails the QA stage, Deploy is skipped, and the previous stable version stays live.
 
 ### Run lifecycle, versions and rollback
-1. `POST /api/projects` creates a project and starts a run in the background. The dashboard polls status and events.
+1. `POST /api/projects` creates a project (owned by the signed-in user) and starts a run in the background. The web app polls status and events every second.
 2. Agent states: `PENDING → RUNNING → COMPLETED | FAILED`, `RETRYING` (one retry for transient errors), `SKIPPED` (downstream of a failure).
 3. A fully successful run is **promoted**: its snapshot is verified against `forge_manifest.json` (SHA-256 per file) and copied atomically to `current/`, creating version *n*.
 4. A failed run never touches `current/`. **Rollback** to any earlier stable run re-materialises that snapshot (checksum-verified) **and** restores all seven artifacts as new versions (history is never deleted). Rollback to a failed run, or to a tampered snapshot, is rejected.
 5. **Preview** runs the active version as a real process (API + built frontend) on a local port with local-only admin credentials.
+
+### Web app and accounts
+`frontend/` is the original Lovable FORGE AI frontend (landing page, robot mascot, light/dark theme,
+login/sign-up), now connected to the platform API. Signed-in users get:
+- **Dashboard** (`/app`): project history with live status, builds run, live versions.
+- **New project** (`/app/new`): natural-language prompt, optional test-mode failure injection.
+- **Workspace** (`/app/projects/<id>`): the seven agents' live status, activity log, artifact viewer,
+  generated files, executed QA and deploy reports, embedded live preview of the generated app, version
+  history with rollback, new iterations and ZIP download.
+
+Platform accounts use PBKDF2-hashed passwords (`workspace/users.json`) and signed bearer tokens
+(`FORGE_SECRET_KEY`, or a key generated once into the workspace). Every project endpoint checks
+ownership; other users' projects return 404. Projects created before accounts existed are assigned to
+the first account registered on the installation.
 
 ### LLM usage and generation modes
 The PM agent (requirement analysis) and UI agent (visual identity) call **Google Gemini** (the
@@ -61,12 +76,12 @@ validated specs by templates, which keeps the generated apps runnable and testab
 
 ## Setup
 
-Requirements: Python 3.11+, Node.js 18+ (for generated-frontend builds and the dashboard). Docker is optional.
+Requirements: Python 3.11+, Node.js 22.12+ (the Lovable frontend requires it; also used for generated-frontend builds). Docker is optional.
 
 ```bash
 pip install -r requirements.txt
 cp .env.example backend/.env        # optional: set USE_LLM=true and GOOGLE_API_KEY
-cd dashboard && npm install && cd ..
+cd frontend && npm ci && cd ..
 ```
 
 ## Run
@@ -75,22 +90,27 @@ cd dashboard && npm install && cd ..
 python -m uvicorn backend.main:app --port 8000
 ```
 ```bash
-cd dashboard && npm run dev          # http://localhost:5173 (proxies /api to :8000)
+cd frontend && npm run dev -- --host 127.0.0.1 --port 3000     # http://127.0.0.1:3000
 ```
 
 The first generation installs a shared React/Vite toolchain into `workspace/node_modules` (about 30 s, once).
-Then a typical generation takes about 10 s.
+Then a typical generation takes about 10 s. Open the web app, sign up, and create a project.
+The frontend calls the API at `VITE_API_BASE_URL` (default `http://127.0.0.1:8000`).
 
-Docker alternative for the platform itself: `docker compose up --build` (dashboard :3000, API :8000).
+Docker alternative for the platform itself: `docker compose up --build` (web app :3000, API :8000).
 
 ## Tests
 
 ```bash
 python -m pytest
 ```
-128 tests cover the PM analysis, the LLM integration (fake client), code generation, cross-agent contracts,
+```bash
+cd frontend && npm run test
+```
+135 Python tests cover platform accounts and project ownership, the PM analysis, the LLM integration (fake client), code generation, cross-agent contracts,
 orchestration semantics, the project store and rollback, the platform API lifecycle, and real end-to-end
 generation including a `vite build` and a deliberately broken backend that QA must catch.
+15 frontend tests cover routing of every page and the API client (tokens, 401 handling, errors).
 
 ## Repository layout
 ```
@@ -101,7 +121,8 @@ backend/artifacts/     artifact store, manager, context, rollback manager
 backend/monitoring/    execution events, JSONL logger, queries
 backend/services/      pipeline, run manager, project store, preview, toolchain, failure classifier, self-healing
 backend/llm/           Gemini client + JSON extraction
-dashboard/             FORGE AI platform dashboard (not a generated app)
+backend/auth/          platform accounts (password hashing, tokens, user store)
+frontend/              FORGE AI web app: original Lovable design + workspace screens (not a generated app)
 docs/                  implementation assessment and architecture notes
 workspace/             (git-ignored) generated projects, artifacts, logs
 ```
@@ -119,3 +140,7 @@ workspace/             (git-ignored) generated projects, artifacts, logs
 - **Iterations regenerate the whole application from the new prompt** rather than patching it. In LLM mode the
   previous requirements are passed as context.
 - **Previews run on random local ports** and are reachable only from the machine running the platform.
+- **Accounts:** no password recovery or e-mail verification yet; the session token is kept in the browser's
+  `localStorage` and expires after 12 hours.
+- **New screens:** the dashboard, new-project and workspace screens did not exist in the Lovable export.
+  They are composed from its existing patterns and tokens, not from a separate design.

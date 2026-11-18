@@ -83,12 +83,13 @@ class ProjectStore:
         return self.project_dir(project_id) / "current"
 
     # ------------------------------------------------------------------ projects
-    def create_project(self, prompt: str, name: Optional[str] = None) -> Dict[str, Any]:
+    def create_project(self, prompt: str, name: Optional[str] = None, owner_id: Optional[str] = None) -> Dict[str, Any]:
         project_id = f"proj_{uuid.uuid4().hex[:10]}"
         path = self.project_dir(project_id)
         path.mkdir(parents=True)
         data = {
             "project_id": project_id,
+            "owner_id": owner_id,
             "name": name or (prompt.strip()[:60] + ("…" if len(prompt.strip()) > 60 else "")),
             "initial_prompt": prompt,
             "created_at": _now(),
@@ -113,22 +114,42 @@ class ProjectStore:
         data["updated_at"] = _now()
         _write_json(self.project_dir(data["project_id"]) / "project.json", data)
 
-    def list_projects(self) -> List[Dict[str, Any]]:
+    def list_projects(self, owner_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List projects; with ``owner_id`` only that user's projects are returned."""
         items = []
         for path in self.root.glob("*/project.json"):
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
+            if owner_id is not None and data.get("owner_id") != owner_id:
+                continue
             last_run = self.load_run(data["project_id"], data["runs"][-1]) if data.get("runs") else None
             items.append({
                 "project_id": data["project_id"], "name": data.get("project_name") or data["name"],
+                "initial_prompt": data.get("initial_prompt"),
                 "created_at": data["created_at"], "updated_at": data["updated_at"],
                 "run_count": len(data.get("runs", [])), "current_version": data.get("current_version"),
                 "current_run_id": data.get("current_run_id"),
                 "last_status": (last_run or {}).get("execution_status"),
             })
         return sorted(items, key=lambda x: x["updated_at"], reverse=True)
+
+    def adopt_unowned_projects(self, owner_id: str) -> int:
+        """Assign projects created before platform accounts existed to ``owner_id`` (first account only)."""
+        adopted = 0
+        for path in self.root.glob("*/project.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if data.get("owner_id"):
+                continue
+            with self._lock(data["project_id"]):
+                data["owner_id"] = owner_id
+                _write_json(path, data)
+            adopted += 1
+        return adopted
 
     # ------------------------------------------------------------------ runs
     def register_run(self, project_id: str, run_id: str, prompt: str, options: Dict[str, Any]) -> Path:

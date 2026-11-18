@@ -21,6 +21,9 @@ def client(isolated_workspace):
     from backend.main import app
 
     with TestClient(app) as test_client:
+        session = test_client.post("/api/auth/register", json={"email": "owner@forge.test", "password": "owner-pass-1"})
+        assert session.status_code == 201, session.text
+        test_client.headers.update({"Authorization": f"Bearer {session.json()['access_token']}"})
         yield test_client
 
 

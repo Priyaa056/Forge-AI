@@ -4,7 +4,9 @@
 
 This source export preserves the current FORGE AI landing page, robot mascot, animations, light/dark theme, and login/sign-up screens, including form validation and password visibility controls.
 
-**Current state:** authentication is not connected. Forms explicitly report that sign-in is unavailable; they do not create accounts or authenticate users. Agent orchestration, a builder workspace, live generated-app previews, project history, and app ZIP generation are not implemented workflows. Homepage examples are illustrations, not real backend results. This export does not add mock services, a backend, or database/authentication services.
+**Current state (integrated with the FORGE AI platform API in `../backend`):** the original Lovable design is unchanged and is now the FORGE AI web app. Sign-up and log-in create and use real platform accounts. Signed-in users get a dashboard with their project history, a new-project screen, and a project workspace that shows live progress of the seven agents, the activity log, each agent's artifact, the generated source files, executed QA and deployment reports, an embedded live preview of the generated application, version history with rollback, and a ZIP download. The homepage's hero and "Generated preview" mock-ups remain illustrations. Password recovery is not implemented.
+
+Screens added for the signed-in area (`/app`, `/app/new`, `/app/projects/$projectId`) did not exist in the Lovable export; they are composed only from the export's existing patterns (hero workspace frame, agent list with status dots, cards, buttons, form fields, tokens) so they look like the original design.
 
 ## Technology stack
 
@@ -38,7 +40,7 @@ Copy-Item .env.example .env.local
 npm run dev -- --host 127.0.0.1 --port 3000
 ```
 
-Open **http://127.0.0.1:3000**. Existing pages: `/`, `/login`, `/signup`. Keep the terminal running; Ctrl+C stops it. Source changes update the page automatically.
+Open **http://127.0.0.1:3000**. Pages: `/`, `/login`, `/signup`, and (signed in) `/app`, `/app/new`, `/app/projects/<id>`. Start the platform API first (`python -m uvicorn backend.main:app --port 8000` from the repository root). Keep the terminal running; Ctrl+C stops it. Source changes update the page automatically.
 
 Google Fonts requires internet access for the exact intended fonts; offline use falls back to system fonts. The robot image and all existing local assets are included.
 
@@ -62,29 +64,29 @@ npm run lint
 
 ## Environment variables required
 
-**No environment variables are required by the current frontend.** `.env.example` contains only an optional public localhost placeholder for future integration:
+**No environment variables are required for local development.**
 
-| Variable | Intended use | Current status |
+| Variable | Use | Default |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | Base URL of your existing FastAPI service | Not read by current code; setting it alone does not connect the backend |
+| `VITE_API_BASE_URL` | Base URL of the FORGE AI platform API, read in `src/lib/api/client.ts` | `http://127.0.0.1:8000` |
 
-When connecting the real backend, set your local URL in `.env.local` and read it through `import.meta.env.VITE_API_BASE_URL`. Restart development after changing environment values. Vite exposes `VITE_` values to the browser: **never store passwords, private API keys, tokens, or other secrets in them**. Keep backend secrets in FastAPI. Real `.env` files must not be committed or exported.
+To point the app at another API, set the value in `.env.local` and restart development. Vite exposes `VITE_` values to the browser: **never store passwords, private API keys, tokens, or other secrets in them**. Keep backend secrets in FastAPI. Real `.env` files must not be committed or exported.
 
 ## Backend integration requirements
 
-Run your existing Python FastAPI backend separately. No Python backend is included or created here. Keep the frontend in its own folder so extracting it cannot overwrite your backend.
+The FastAPI platform API lives in `../backend` (run it separately). The contract the frontend uses:
 
-Confirm your backend's actual API contract before wiring the frontend:
+| Area | Endpoints |
+| --- | --- |
+| Accounts | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` — bearer tokens (`Authorization: Bearer …`), stored in `localStorage` under `forge-token`; a 401 signs the user out |
+| Platform | `GET /api/system` (LLM mode, toolchain, fault injection) |
+| Projects & runs | `GET/POST /api/projects`, `GET /api/projects/{id}`, `POST /api/projects/{id}/runs`, `GET …/runs/{run}` (polled every second while a build runs), `GET …/runs/{run}/events` |
+| Artifacts & reports | `GET /api/artifacts/{id}`, `GET …/runs/{run}/specs/qa`, `GET …/runs/{run}/specs/deploy` |
+| Files | `GET …/runs/{run}/files`, `GET …/runs/{run}/files/content?path=`, `GET …/runs/{run}/download` (ZIP; `run` may be `current`) |
+| Versions | `POST /api/projects/{id}/rollback` |
+| Preview | `GET …/preview`, `POST …/preview/start`, `POST …/preview/stop` |
 
-- Base URL and real login, registration, logout/session, and recovery endpoint paths.
-- Request fields, response shapes, error handling, session expiry, and refresh behavior.
-- Whether authentication uses secure cookies or bearer tokens.
-- Actual agent execution and progress interfaces, including SSE/WebSocket formats if supported.
-- Actual generated-app preview, history, and source-download endpoints.
-
-Endpoint paths are deliberately **not guessed**. `src/components/AuthForm.tsx` contains the current disconnected submission handler; connect it to the real login/registration endpoints while keeping its design and validation. Add a browser-safe API client once the contract is known. Other advertised backend workflows need their actual screens and integration; this source does not claim they already exist.
-
-For browser-to-FastAPI calls, enable CORS on the existing backend for the exact frontend origin, for example `http://127.0.0.1:3000`. `http://localhost:3000` is a different origin and needs separate allowance if used. Allow the methods and headers needed by the real API. Cookie authentication also requires explicit origins (not `*`), backend credential support, appropriate cookie settings, and frontend requests with `credentials: "include"`. Do not expose privileged backend credentials to browser code.
+API access is kept out of the UI components: `src/lib/api/client.ts` (HTTP, token, errors), `src/lib/api/forge.ts` (typed endpoints), `src/lib/api/types.ts` (response shapes), `src/lib/auth.tsx` (session state). The API allows browser origins on `localhost` / `127.0.0.1` (any port) via CORS; no cookies are used.
 
 ## Source layout
 
@@ -92,9 +94,11 @@ For browser-to-FastAPI calls, enable CORS on the existing backend for the exact 
 src/
   assets/          Robot and local media
   components/     Branding, auth forms, UI components
+    app/          Signed-in screens' building blocks (agent pipeline, files, preview, reports, versions)
   hooks/          Shared hooks
-  lib/            Utilities and existing error handling
-  routes/         Home, login, signup, root layout
+  lib/            Utilities, existing error handling, agents metadata, session (auth.tsx)
+    api/          Platform API client, typed endpoints and response types
+  routes/         Home, login, signup, root layout, /app (dashboard, new project, workspace)
   test/           Automated tests
   router.tsx      Router configuration
   start.ts        Existing request middleware
@@ -112,6 +116,17 @@ tsconfig.json    TypeScript configuration
 
 All current components and assets are included, including unused UI components. Route definitions regenerate automatically; do not manually edit `src/routeTree.gen.ts`. Repository metadata, private workspace files, real environment files, installed dependencies, logs, and generated build output are excluded. No current design or functionality is removed.
 
-## Export verification
+## Production build for Docker / Node hosting
+
+The shared Lovable Vite configuration targets Cloudflare by default. For a self-hosted Node server, build with Nitro's standard preset (no configuration change needed):
+
+```bash
+NITRO_PRESET=node-server npm run build
+node .output/server/index.mjs     # PORT and HOST environment variables apply
+```
+
+`../docker/Dockerfile.frontend` does exactly this.
+
+## Export verification (original Lovable export)
 
 An isolated exported copy passed dependency installation, `npm run build`, and the existing automated routing test on Linux with Node.js 22.23.4. All three current pages also loaded in a browser without page errors; sign-up correctly reported that authentication is not connected. The build completed with non-fatal bundler/dependency warnings. Windows execution itself was not tested; the Windows commands above use the same project scripts. No deployment was performed.

@@ -8,6 +8,7 @@ Each generated project still ships its own package.json for standalone use.
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import threading
@@ -28,7 +29,12 @@ def node_available() -> bool:
 
 
 def toolchain_root() -> Path:
-    return workspace_dir()
+    """Directory holding the shared node_modules (FORGE_TOOLCHAIN_DIR, default: the workspace).
+
+    Generated frontends must live below it so Node's upward module resolution finds the packages.
+    """
+    configured = os.getenv("FORGE_TOOLCHAIN_DIR", "").strip()
+    return Path(configured).resolve() if configured else workspace_dir()
 
 
 def is_ready() -> bool:
