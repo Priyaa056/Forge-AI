@@ -482,10 +482,14 @@ export default function ResourcePage({ config }) {
 
       <div className="card table-card">
         {loading ? <div className="empty-state">Loading…</div> : items.length === 0 ? (
-          <div className="empty-state">
-            <h3>No {config.pluralLabel.toLowerCase()} yet</h3>
-            {canWrite && <p>Create the first one with “New {config.label.toLowerCase()}”.</p>}
-          </div>
+          search || Object.values(filters).some((v) => v !== '' && v !== undefined) ? (
+            <div className="empty-state"><h3>No matching {config.pluralLabel.toLowerCase()}</h3><p>Try a different search or filter.</p></div>
+          ) : (
+            <div className="empty-state">
+              <h3>No {config.pluralLabel.toLowerCase()} yet</h3>
+              {canWrite && <p>Create the first one with “New {config.label.toLowerCase()}”.</p>}
+            </div>
+          )
         ) : (
           <table>
             <thead><tr>{columns.map((c) => <th key={c.name}>{c.label}</th>)}<th aria-label="Actions" /></tr></thead>

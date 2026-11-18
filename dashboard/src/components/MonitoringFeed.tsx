@@ -1,92 +1,218 @@
-import React from 'react';
-import { Activity, RefreshCw, AlertTriangle, CheckCircle2, Info, Layers } from 'lucide-react';
-import { ExecutionEventModel } from '../types';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, AlertTriangle, ArrowDownToLine, CheckCircle2, Info, Layers, RotateCcw, Terminal } from 'lucide-react';
+import type { ExecutionEvent } from '../types';
+import { STAGE_ORDER } from '../types';
+import { agentBadgeClass } from '../lib/stages';
+import { cn, formatDuration, formatTime } from '../lib/utils';
+import { EmptyState, Panel, Spinner } from './ui';
 
 interface MonitoringFeedProps {
-  events: ExecutionEventModel[];
-  onRefresh: () => void;
-  isLoading: boolean;
+  events: ExecutionEvent[];
+  live: boolean;
+  loading: boolean;
 }
 
-export const MonitoringFeed: React.FC<MonitoringFeedProps> = ({ events, onRefresh, isLoading }) => {
-  const getEventBadge = (type: string) => {
-    if (type.includes('COMPLETED')) {
-      return 'bg-emerald-950/80 text-emerald-400 border-emerald-800';
+type LevelFilter = 'all' | 'issues';
+type KindFilter = 'all' | 'logs' | 'lifecycle';
+
+function eventTone(evt: ExecutionEvent): string {
+  const t = evt.event_type;
+  if (evt.level === 'error' || t.endsWith('FAILED')) return 'text-rose-300';
+  if (evt.level === 'warning' || t === 'AGENT_RETRYING') return 'text-amber-300';
+  if (t.endsWith('COMPLETED') || t === 'VERSION_PROMOTED') return 'text-emerald-300';
+  if (t === 'AGENT_SKIPPED') return 'text-slate-500';
+  if (t.endsWith('STARTED')) return 'text-blue-300';
+  return 'text-slate-300';
+}
+
+function eventIcon(evt: ExecutionEvent) {
+  const t = evt.event_type;
+  if (t === 'AGENT_LOG') return <Terminal className="w-3.5 h-3.5 text-slate-500 shrink-0" />;
+  if (t.endsWith('FAILED')) return <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />;
+  if (t.startsWith('ROLLBACK')) return <RotateCcw className="w-3.5 h-3.5 text-amber-400 shrink-0" />;
+  if (t.endsWith('COMPLETED') || t === 'VERSION_PROMOTED') return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />;
+  if (t.startsWith('ARTIFACT')) return <Layers className="w-3.5 h-3.5 text-indigo-400 shrink-0" />;
+  return <Info className="w-3.5 h-3.5 text-blue-400 shrink-0" />;
+}
+
+function isIssue(evt: ExecutionEvent): boolean {
+  return (
+    evt.level === 'warning' ||
+    evt.level === 'error' ||
+    evt.event_type.endsWith('FAILED') ||
+    evt.event_type === 'AGENT_RETRYING'
+  );
+}
+
+export const EventLine: React.FC<{ evt: ExecutionEvent; showRun?: boolean }> = ({ evt, showRun }) => {
+  const isLog = evt.event_type === 'AGENT_LOG';
+  const text = [evt.message, evt.error_message && evt.error_message !== evt.message ? evt.error_message : null]
+    .filter(Boolean)
+    .join(' — ');
+  return (
+    <div
+      className={cn(
+        'px-2.5 py-1.5 rounded-lg flex items-start gap-2 text-[11px] sm:text-xs font-mono leading-relaxed',
+        isLog ? 'hover:bg-slate-900/60' : 'bg-slate-900/70 border border-slate-800/80',
+        evt.level === 'error' && isLog && 'bg-rose-950/30',
+        evt.level === 'warning' && isLog && 'bg-amber-950/20',
+      )}
+    >
+      <span className="text-slate-500 shrink-0 tabular-nums">{formatTime(evt.timestamp)}</span>
+      <span className="mt-0.5">{eventIcon(evt)}</span>
+      <div className="min-w-0 flex-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        {evt.agent_name && (
+          <span className={cn('px-1.5 rounded border text-[10px] font-semibold shrink-0', agentBadgeClass(evt.agent_name))}>
+            {evt.agent_name}
+          </span>
+        )}
+        {!isLog && <span className={cn('font-semibold text-[10px] shrink-0', eventTone(evt))}>{evt.event_type}</span>}
+        {showRun && evt.run_id && <span className="text-[10px] text-slate-500 shrink-0">{evt.run_id}</span>}
+        <span className={cn('break-words min-w-0', isLog ? eventTone(evt) : 'text-slate-300')}>
+          {text || (isLog ? '' : evt.status ?? '')}
+        </span>
+        {evt.duration_ms != null && !isLog && (
+          <span className="text-slate-500 text-[10px] shrink-0">{formatDuration(evt.duration_ms)}</span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export const MonitoringFeed: React.FC<MonitoringFeedProps> = ({ events, live, loading }) => {
+  const [agent, setAgent] = useState<string>('all');
+  const [level, setLevel] = useState<LevelFilter>('all');
+  const [kind, setKind] = useState<KindFilter>('all');
+  const [follow, setFollow] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const agents = useMemo(() => {
+    const extra = new Set<string>();
+    events.forEach((e) => {
+      if (e.agent_name && !(STAGE_ORDER as string[]).includes(e.agent_name)) extra.add(e.agent_name);
+    });
+    return [...STAGE_ORDER, ...Array.from(extra).sort()];
+  }, [events]);
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    events.forEach((e) => {
+      if (e.agent_name) c[e.agent_name] = (c[e.agent_name] ?? 0) + 1;
+    });
+    return c;
+  }, [events]);
+
+  const filtered = useMemo(
+    () =>
+      events.filter(
+        (e) =>
+          (agent === 'all' || e.agent_name === agent) &&
+          (level === 'all' || isIssue(e)) &&
+          (kind === 'all' || (kind === 'logs' ? e.event_type === 'AGENT_LOG' : e.event_type !== 'AGENT_LOG')),
+      ),
+    [events, agent, level, kind],
+  );
+
+  useEffect(() => {
+    if (follow && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-    if (type.includes('FAILED')) {
-      return 'bg-rose-950/80 text-rose-400 border-rose-800';
-    }
-    if (type.includes('STARTED')) {
-      return 'bg-blue-950/80 text-blue-400 border-blue-800';
-    }
-    if (type.includes('ROLLBACK')) {
-      return 'bg-amber-950/80 text-amber-400 border-amber-800';
-    }
-    return 'bg-slate-900 text-slate-400 border-slate-800';
+  }, [filtered.length, follow]);
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    if (atBottom !== follow) setFollow(atBottom);
   };
 
-  const getEventIcon = (type: string) => {
-    if (type.includes('COMPLETED')) return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />;
-    if (type.includes('FAILED')) return <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />;
-    if (type.includes('ARTIFACT')) return <Layers className="w-3.5 h-3.5 text-indigo-400 shrink-0" />;
-    return <Info className="w-3.5 h-3.5 text-blue-400 shrink-0" />;
-  };
+  const selectCls =
+    'bg-slate-950 border border-slate-700/70 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500';
 
   return (
-    <div className="glass-panel rounded-2xl p-6 border border-slate-800">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Activity className="w-5 h-5 text-blue-400" />
-          <h2 className="text-lg font-semibold text-white">Monitoring Execution Feed</h2>
-          <span className="text-xs font-mono text-slate-400 font-normal">({events.length} events recorded)</span>
-        </div>
-
-        <button
-          onClick={onRefresh}
-          disabled={isLoading}
-          className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${isLoading ? 'animate-spin' : ''}`} />
-          <span>Refresh Feed</span>
-        </button>
-      </div>
-
-      {events.length === 0 ? (
-        <div className="p-8 text-center border border-dashed border-slate-800 rounded-xl">
-          <Activity className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-          <p className="text-sm text-slate-400">No monitoring execution events recorded yet.</p>
-          <p className="text-xs text-slate-600 mt-1">Start a pipeline run to observe events.</p>
-        </div>
-      ) : (
-        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-          {events.map((evt) => (
-            <div
-              key={evt.event_id}
-              className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 hover:border-slate-700/80 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs font-mono"
+    <Panel
+      title={
+        <span className="flex items-center gap-2">
+          Live monitoring feed
+          <span className="text-[11px] font-mono text-slate-500 font-normal">
+            {filtered.length}/{events.length} events
+          </span>
+        </span>
+      }
+      icon={<Activity className="w-4 h-4 text-blue-400" />}
+      actions={
+        <>
+          {live ? (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-emerald-300">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 pulse-subtle" />
+              live · polling every 1 s
+            </span>
+          ) : (
+            <span className="text-[11px] font-mono text-slate-500">run finished · polling stopped</span>
+          )}
+        </>
+      }
+      bodyClassName="p-0"
+    >
+      <div className="px-4 sm:px-5 py-2.5 border-b border-slate-800/80 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1">
+          {['all', ...agents].map((a) => (
+            <button
+              key={a}
+              onClick={() => setAgent(a)}
+              className={cn(
+                'px-2 py-0.5 rounded-md border text-[11px] font-mono transition-colors',
+                agent === a
+                  ? a === 'all'
+                    ? 'bg-blue-600/30 border-blue-500/60 text-blue-200'
+                    : cn(agentBadgeClass(a), 'ring-1 ring-white/30')
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200',
+              )}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                {getEventIcon(evt.event_type)}
-                <span className={`px-2 py-0.5 rounded-md font-semibold border text-[11px] ${getEventBadge(evt.event_type)}`}>
-                  {evt.event_type}
-                </span>
-                {evt.agent_name && (
-                  <span className="text-slate-300 font-semibold bg-slate-800 px-2 py-0.5 rounded">
-                    [{evt.agent_name}]
-                  </span>
-                )}
-                <span className="text-slate-300 truncate">{evt.message || evt.error_message}</span>
-              </div>
-
-              <div className="flex items-center gap-3 text-slate-500 text-[11px] shrink-0 self-end sm:self-auto">
-                {evt.duration_ms != null && (
-                  <span className="text-slate-400">{evt.duration_ms}ms</span>
-                )}
-                <span>{new Date(evt.timestamp).toLocaleTimeString()}</span>
-              </div>
-            </div>
+              {a}
+              {a !== 'all' && counts[a] ? <span className="ml-1 opacity-60">{counts[a]}</span> : null}
+            </button>
           ))}
         </div>
-      )}
-    </div>
+        <div className="flex items-center gap-2 ml-auto">
+          <select value={kind} onChange={(e) => setKind(e.target.value as KindFilter)} className={selectCls} aria-label="Event kind">
+            <option value="all">Logs + lifecycle</option>
+            <option value="logs">Agent logs only</option>
+            <option value="lifecycle">Lifecycle only</option>
+          </select>
+          <select value={level} onChange={(e) => setLevel(e.target.value as LevelFilter)} className={selectCls} aria-label="Level">
+            <option value="all">All levels</option>
+            <option value="issues">Warnings & errors</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="relative">
+        <div ref={scrollRef} onScroll={onScroll} className="h-[420px] overflow-y-auto px-2 sm:px-3 py-2 space-y-1">
+          {loading && events.length === 0 ? (
+            <div className="p-6 flex justify-center">
+              <Spinner label="Loading events..." />
+            </div>
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              className="m-2"
+              icon={<Activity className="w-7 h-7" />}
+              title={events.length === 0 ? 'No events recorded for this run yet.' : 'No events match the current filters.'}
+            />
+          ) : (
+            filtered.map((evt) => <EventLine key={evt.event_id} evt={evt} />)
+          )}
+        </div>
+        {!follow && filtered.length > 0 && (
+          <button
+            onClick={() => setFollow(true)}
+            className="absolute bottom-3 right-4 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium shadow-lg flex items-center gap-1"
+          >
+            <ArrowDownToLine className="w-3.5 h-3.5" />
+            Follow latest
+          </button>
+        )}
+      </div>
+    </Panel>
   );
 };
