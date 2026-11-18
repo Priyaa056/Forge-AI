@@ -120,9 +120,19 @@ All current components and assets are included, including unused UI components. 
 
 The shared Lovable Vite configuration targets Cloudflare by default. For a self-hosted Node server, build with Nitro's standard preset (no configuration change needed):
 
+PowerShell:
+
+```powershell
+$env:NITRO_PRESET = "node-server"
+npm run build
+node .output/server/index.mjs     # PORT and HOST environment variables apply
+```
+
+bash:
+
 ```bash
 NITRO_PRESET=node-server npm run build
-node .output/server/index.mjs     # PORT and HOST environment variables apply
+node .output/server/index.mjs
 ```
 
 `../docker/Dockerfile.frontend` does exactly this.

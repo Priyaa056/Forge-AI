@@ -78,20 +78,33 @@ validated specs by templates, which keeps the generated apps runnable and testab
 
 Requirements: Python 3.11+, Node.js 22.12+ (the Lovable frontend requires it; also used for generated-frontend builds). Docker is optional.
 
+Commands are written one per line so they work in Windows PowerShell 5.1 (which has no `&&`), PowerShell 7 and bash.
+Run them from the repository root (`D:\ForgeAI final`).
+
 ```bash
 pip install -r requirements.txt
-cp .env.example backend/.env        # optional: set USE_LLM=true and GOOGLE_API_KEY
-cd frontend && npm ci && cd ..
+copy .env.example backend\.env        # optional (bash: cp .env.example backend/.env); set USE_LLM=true and GOOGLE_API_KEY
+cd frontend
+npm ci
+cd ..
 ```
 
 ## Run
 
+Use two terminals, both starting in the repository root.
+
+Terminal 1, the platform API (http://127.0.0.1:8000):
 ```bash
 python -m uvicorn backend.main:app --port 8000
 ```
+
+Terminal 2, the web app (http://127.0.0.1:3000):
 ```bash
-cd frontend && npm run dev -- --host 127.0.0.1 --port 3000     # http://127.0.0.1:3000
+cd frontend
+npm run dev -- --host 127.0.0.1 --port 3000
 ```
+
+Vite may print a notice about `vite-tsconfig-paths`; it comes from the original Lovable configuration and is harmless.
 
 The first generation installs a shared React/Vite toolchain into `workspace/node_modules` (about 30 s, once).
 Then a typical generation takes about 10 s. Open the web app, sign up, and create a project.
@@ -105,7 +118,8 @@ Docker alternative for the platform itself: `docker compose up --build` (web app
 python -m pytest
 ```
 ```bash
-cd frontend && npm run test
+cd frontend
+npm run test
 ```
 135 Python tests cover platform accounts and project ownership, the PM analysis, the LLM integration (fake client), code generation, cross-agent contracts,
 orchestration semantics, the project store and rollback, the platform API lifecycle, and real end-to-end
