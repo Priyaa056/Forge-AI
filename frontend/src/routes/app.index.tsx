@@ -1,10 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight, Cpu, FolderGit2, Layers, Loader2, Plus, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import robot from "@/assets/robot.png";
 import { btnPrimary } from "@/components/brand";
+import { DeleteProjectDialog, ProjectActionsMenu } from "@/components/app/DeleteProject";
 import { Alert, Eyebrow, RunStatusPill, btnSmall } from "@/components/app/ui";
 import { forgeApi } from "@/lib/api/forge";
+import type { ProjectListItem } from "@/lib/api/types";
 import { formatWhen } from "@/lib/agents";
 import { useAuth } from "@/lib/auth";
 
@@ -24,6 +28,26 @@ function Dashboard() {
         : false,
   });
   const system = useQuery({ queryKey: ["system"], queryFn: forgeApi.system, staleTime: 60_000 });
+  const queryClient = useQueryClient();
+  const [toDelete, setToDelete] = useState<ProjectListItem | null>(null);
+  const removal = useMutation({
+    mutationFn: (project: ProjectListItem) => forgeApi.deleteProject(project.project_id),
+    onSuccess: (_result, project) => {
+      // Remove the card at once, drop everything cached for that project, then re-sync with the server.
+      queryClient.setQueryData<ProjectListItem[]>(["projects"], (old) =>
+        old?.filter((p) => p.project_id !== project.project_id),
+      );
+      queryClient.removeQueries({
+        predicate: (q) => q.queryKey[0] !== "projects" && q.queryKey.includes(project.project_id),
+      });
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setToDelete(null);
+      toast.success("Project deleted successfully.");
+    },
+    onError: (error) => {
+      toast.error(`Could not delete the project: ${error.message}`);
+    },
+  });
 
   const list = projects.data ?? [];
   const stable = list.filter((p) => p.current_version).length;
@@ -118,39 +142,60 @@ function Dashboard() {
         {list.length > 0 && (
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             {list.map((p) => (
-              <Link
-                key={p.project_id}
-                to="/app/projects/$projectId"
-                params={{ projectId: p.project_id }}
-                className="group rounded-2xl border bg-card p-6 shadow-soft transition hover:-translate-y-1 hover:border-primary"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="min-w-0 truncate text-lg font-semibold group-hover:text-primary">
-                    {p.name}
-                  </h3>
-                  <RunStatusPill status={p.last_status} className="shrink-0" />
-                </div>
-                {p.initial_prompt && (
-                  <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                    {p.initial_prompt}
-                  </p>
-                )}
-                <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span>
-                    {p.current_version
-                      ? `Live version v${p.current_version}`
-                      : "No stable version yet"}
-                  </span>
-                  <span>
-                    {p.run_count} build{p.run_count === 1 ? "" : "s"}
-                  </span>
-                  <span>Updated {formatWhen(p.updated_at)}</span>
-                </div>
-              </Link>
+              <div key={p.project_id} className="relative transition hover:-translate-y-1">
+                <Link
+                  to="/app/projects/$projectId"
+                  params={{ projectId: p.project_id }}
+                  className="group block h-full rounded-2xl border bg-card p-6 shadow-soft transition hover:border-primary"
+                >
+                  <div className="flex items-start justify-between gap-3 pr-9">
+                    <h3 className="min-w-0 truncate text-lg font-semibold group-hover:text-primary">
+                      {p.name}
+                    </h3>
+                    <RunStatusPill status={p.last_status} className="shrink-0" />
+                  </div>
+                  {p.initial_prompt && (
+                    <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
+                      {p.initial_prompt}
+                    </p>
+                  )}
+                  <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>
+                      {p.current_version
+                        ? `Live version v${p.current_version}`
+                        : "No stable version yet"}
+                    </span>
+                    <span>
+                      {p.run_count} build{p.run_count === 1 ? "" : "s"}
+                    </span>
+                    <span>Updated {formatWhen(p.updated_at)}</span>
+                  </div>
+                </Link>
+                <ProjectActionsMenu
+                  projectName={p.name}
+                  onDelete={() => {
+                    removal.reset();
+                    setToDelete(p);
+                  }}
+                  className="absolute right-4 top-5"
+                />
+              </div>
             ))}
           </div>
         )}
       </section>
+
+      <DeleteProjectDialog
+        open={toDelete !== null}
+        projectName={toDelete?.name ?? null}
+        pending={removal.isPending}
+        error={removal.error ? removal.error.message : null}
+        onCancel={() => {
+          setToDelete(null);
+          removal.reset();
+        }}
+        onConfirm={() => toDelete && removal.mutate(toDelete)}
+      />
     </main>
   );
 }

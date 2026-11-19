@@ -8,6 +8,7 @@ Run: uvicorn backend.main:app --reload --port 8000
 """
 
 import io
+import logging
 import json
 import shutil
 import zipfile
@@ -41,7 +42,7 @@ from backend.monitoring import sanitize_secret
 from backend.services import toolchain
 from backend.services.pipeline import STAGE_ORDER, STAGE_SCHEMA_MAP, STAGE_SPEC_FILES, PipelineStage
 from backend.services.preview import PreviewManager
-from backend.services.project_store import ProjectNotFound, RollbackRejected
+from backend.services.project_store import ProjectBusy, ProjectNotFound, RollbackRejected
 from backend.services.run_manager import RunManager
 
 _services: Dict[str, Any] = {}
@@ -108,6 +109,11 @@ def _rollback_validation(_r: Request, exc: RollbackValidationError):
 
 @app.exception_handler(RollbackDependencyError)
 def _rollback_dependency(_r: Request, exc: RollbackDependencyError):
+    return _error(409, exc)
+
+
+@app.exception_handler(ProjectBusy)
+def _project_busy(_r: Request, exc: ProjectBusy):
     return _error(409, exc)
 
 
@@ -317,6 +323,22 @@ def get_project(project_id: str, user: User = Depends(current_user)):
     public = {k: v for k, v in project.items() if k not in ("preview_admin", "owner_id")}
     public["runs"] = runs
     return public
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: str, user: User = Depends(current_user)):
+    """Permanently delete one of the caller's projects with its runs, versions, files, artifacts and preview."""
+    svc = services()
+    project = owned_project(project_id, user)
+    if svc["runs"].has_active_run(project_id):
+        raise ProjectBusy("A build is still running for this project. Wait for it to finish, then delete it.")
+    svc["previews"].stop(project_id)
+    svc["store"].delete_project(project_id)
+    removed = svc["runs"].artifact_manager.delete_project_artifacts(project_id)
+    svc["runs"].forget_project(project.get("runs", []))
+    logging.getLogger("forge.api").info("Project %s deleted by user %s (%d artifacts removed)", project_id, user["id"], removed)
+    return {"deleted": True, "project_id": project_id, "name": project.get("project_name") or project.get("name"),
+            "artifacts_removed": removed}
 
 
 @app.post("/api/projects/{project_id}/runs", status_code=status.HTTP_202_ACCEPTED)

@@ -1,6 +1,7 @@
 """Artifact Store abstraction and local filesystem JSON implementation."""
 
 import json
+import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Optional
@@ -41,6 +42,11 @@ class BaseArtifactStore(ABC):
         pass
 
 
+    def delete_project(self, project_id: str) -> int:
+        """Remove every artifact of one project; returns how many were removed."""
+        raise NotImplementedError
+
+
 class LocalJsonArtifactStore(BaseArtifactStore):
     """Local filesystem JSON persistent storage implementation for artifacts."""
 
@@ -55,6 +61,17 @@ class LocalJsonArtifactStore(BaseArtifactStore):
         proj_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{artifact.agent_name}_v{artifact.version}_{artifact.artifact_id}.json"
         return proj_dir / filename
+
+    def delete_project(self, project_id: str) -> int:
+        proj_dir = (self.storage_dir / project_id).resolve()
+        if proj_dir.parent != self.storage_dir.resolve() or not proj_dir.is_dir():
+            return 0
+        files = list(proj_dir.glob("*.json"))
+        shutil.rmtree(proj_dir, ignore_errors=True)
+        for path in list(self._cache):
+            if Path(path).resolve().parent == proj_dir:
+                self._cache.pop(path, None)
+        return len(files)
 
     def save(self, artifact: Artifact) -> None:
         file_path = self._get_artifact_path(artifact)

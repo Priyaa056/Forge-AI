@@ -143,6 +143,10 @@ class ArtifactManager:
         self.store.save(artifact)
         return artifact
 
+    def delete_project_artifacts(self, project_id: str) -> int:
+        """Permanently remove all artifacts of a deleted project (other projects are untouched)."""
+        return self.store.delete_project(project_id)
+
     def get_artifact(self, artifact_id: str) -> Optional[Artifact]:
         """Get artifact by artifact_id."""
         return self.store.get(artifact_id)

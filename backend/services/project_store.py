@@ -5,6 +5,7 @@ Layout (inside the git-ignored workspace)::
     workspace/projects/<project_id>/project.json      project metadata, runs, version history
     workspace/projects/<project_id>/runs/<run_id>/    run.json, specs/*.json, app/ (immutable snapshot)
     workspace/projects/<project_id>/current/          materialised active (stable) version of the app
+    workspace/.trash/                                  deleted projects while their files are being removed
 
 A run whose seven agents all succeed (QA passed, deploy health check passed) is *promoted*: its
 snapshot is verified against its checksum manifest and copied atomically into ``current/``.
@@ -39,6 +40,10 @@ class ProjectNotFound(KeyError):
     pass
 
 
+class ProjectBusy(RuntimeError):
+    """The project cannot be deleted right now (a build is running or its files are in use)."""
+
+
 class RollbackRejected(ValueError):
     pass
 
@@ -51,6 +56,25 @@ def _write_json(path: Path, data: Dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def _remove_tree(path: Path, attempts: int = 5) -> bool:
+    """Delete a directory tree, retrying briefly for files Windows still holds open."""
+    def make_writable(func, target, _exc):
+        try:
+            os.chmod(target, 0o700)
+            func(target)
+        except OSError:
+            pass
+
+    for attempt in range(attempts):
+        if not path.exists():
+            return True
+        shutil.rmtree(path, onerror=make_writable)
+        if not path.exists():
+            return True
+        time.sleep(0.2 * (attempt + 1))
+    return not path.exists()
 
 
 def valid_id(value: str) -> bool:
@@ -103,6 +127,37 @@ class ProjectStore:
         }
         _write_json(path / "project.json", data)
         return data
+
+    def delete_project(self, project_id: str) -> None:
+        """Permanently delete one project: metadata, runs, snapshots, the live version and preview data.
+
+        The project directory is first moved out of ``projects/`` with a single rename, so it leaves the
+        project history atomically; if one of its files is locked (e.g. by a still-running process) the
+        rename fails and nothing is changed. The moved directory is then removed from disk. Other projects
+        are never touched: only ``projects/<project_id>`` (a validated id) is moved.
+        """
+        with self._lock(project_id):
+            path = self.project_dir(project_id)
+            if not (path / "project.json").is_file():
+                raise ProjectNotFound(project_id)
+            trash = self.root.parent / ".trash"
+            trash.mkdir(parents=True, exist_ok=True)
+            target = trash / f"{project_id}-{uuid.uuid4().hex[:8]}"
+            try:
+                os.rename(path, target)
+            except OSError as exc:
+                raise ProjectBusy("The project's files are in use; stop its preview and try again.") from exc
+        _remove_tree(target)
+        self.empty_trash()
+        with self._global:
+            self._locks.pop(project_id, None)
+
+    def empty_trash(self) -> None:
+        """Remove leftovers of earlier deletions whose files were briefly locked."""
+        trash = self.root.parent / ".trash"
+        if trash.is_dir():
+            for leftover in trash.iterdir():
+                _remove_tree(leftover)
 
     def load_project(self, project_id: str) -> Dict[str, Any]:
         path = self.project_dir(project_id) / "project.json"

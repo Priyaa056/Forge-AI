@@ -100,6 +100,14 @@ class RunManager:
         summary["user_prompt"] = run.get("user_prompt", summary.get("user_prompt"))
         return summary
 
+    def has_active_run(self, project_id: str) -> bool:
+        with self._lock:
+            return any(p.state.project_id == project_id for p in self.active.values())
+
+    def forget_project(self, run_ids) -> None:
+        for run_id in run_ids:
+            self.promotion.pop(run_id, None)
+
     def is_active(self, run_id: str) -> bool:
         with self._lock:
             return run_id in self.active

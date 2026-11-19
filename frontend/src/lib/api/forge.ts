@@ -47,6 +47,14 @@ export const forgeApi = {
         ...(simulateFailure ? { simulate_failure: simulateFailure } : {}),
       },
     }),
+  /** Permanently deletes a project with its builds, versions, files, artifacts and preview. */
+  deleteProject: (projectId: string) =>
+    request<{ deleted: boolean; project_id: string; name?: string }>(
+      `/api/projects/${enc(projectId)}`,
+      {
+        method: "DELETE",
+      },
+    ),
   createRun: (projectId: string, prompt: string, simulateFailure?: StageName) =>
     request<{ project_id: string; run_id: string }>(`/api/projects/${enc(projectId)}/runs`, {
       method: "POST",
