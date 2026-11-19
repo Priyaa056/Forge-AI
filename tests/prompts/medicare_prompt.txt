@@ -1,0 +1,85 @@
+Build a complete Hospital Management System for a multi-specialty hospital named "MediCare Hospital".
+
+The application should have a modern, professional healthcare dashboard with a clean blue-and-white theme, responsive layout, sidebar navigation, top navigation bar, statistics cards, charts, tables, and interactive forms.
+
+The system should support the following modules:
+
+1. **Dashboard**
+   - Display total patients, doctors, appointments, available beds, admitted patients, and monthly revenue.
+   - Show appointment trends, patient admission charts, department statistics, and recent activities.
+
+2. **Patient Management**
+   - Register new patients with name, age, gender, contact number, address, blood group, and medical history.
+   - Display all patients in a searchable and filterable table.
+   - Allow users to view, edit, and update patient records.
+
+3. **Doctor Management**
+   - Add doctors with their name, specialization, department, contact details, and availability.
+   - Display doctor profiles and schedules.
+   - Allow administrators to update doctor information.
+
+4. **Appointment Management**
+   - Book appointments by selecting a patient, doctor, department, date, and time.
+   - Display upcoming, completed, and cancelled appointments.
+   - Prevent duplicate bookings for the same doctor and time slot.
+
+5. **Department Management**
+   - Include Cardiology, Neurology, Orthopedics, Pediatrics, Dermatology, and General Medicine.
+   - Display department information and assigned doctors.
+
+6. **Admission and Bed Management**
+   - Admit patients and assign rooms and beds.
+   - Track available, occupied, and maintenance beds.
+   - Record admission date, assigned doctor, and discharge date.
+   - Update bed availability after patient discharge.
+
+7. **Billing and Payments**
+   - Generate patient invoices for consultations, treatments, medicines, and room charges.
+   - Display total amount, paid amount, and pending balance.
+   - Support payment status tracking and printable invoices.
+
+8. **Pharmacy Management**
+   - Maintain medicine inventory with medicine name, category, quantity, price, and expiry date.
+   - Track low-stock medicines and expired products.
+   - Record medicine sales and stock updates.
+
+9. **Staff Management**
+   - Manage nurses, receptionists, laboratory technicians, and administrative staff.
+   - Store employee details, department, designation, and contact information.
+
+10. **Reports**
+   - Generate reports for patient registrations, appointments, admissions, bed occupancy, revenue, and pharmacy inventory.
+   - Provide date filters and charts.
+
+## User Roles
+
+Implement role-based access for:
+- Admin: Full system access.
+- Doctor: Access to assigned patients, appointments, and medical records.
+- Receptionist: Patient registration and appointment management.
+- Nurse: Patient admission and assigned patient information.
+- Pharmacist: Medicine inventory and pharmacy management.
+
+## Technical Requirements
+
+- Frontend: React.js with TypeScript and Tailwind CSS.
+- Backend: Python FastAPI.
+- Database: PostgreSQL.
+- Authentication: JWT-based login and role-based authorization.
+- API: RESTful endpoints with proper validation and error handling.
+- Use reusable React components and a clean folder structure.
+- Create proper database relationships between patients, doctors, appointments, departments, admissions, beds, invoices, and medicines.
+- Use realistic sample data for initial testing.
+- Ensure forms, buttons, filters, navigation, and CRUD operations work correctly.
+- Do not use hardcoded dashboard statistics as a substitute for actual application data.
+- Include loading states, validation messages, and error handling.
+
+## Important Generation Instructions
+
+Generate the complete application, not just a UI mockup.
+
+Each module must have its own functional page and connect to the appropriate backend API and database models.
+
+Use realistic sample data, but keep patient information fictional.
+
+Make sure the generated applicat

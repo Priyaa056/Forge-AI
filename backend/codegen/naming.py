@@ -3,6 +3,9 @@
 import keyword
 import re
 
+_UNCOUNTABLE = {"species", "series", "news", "staff", "equipment", "gps", "data", "information", "maintenance",
+                "attendance", "software", "feedback", "furniture", "luggage", "personnel", "livestock", "poultry"}
+
 _IRREGULAR_PLURALS = {
     "person": "people",
     "child": "children",
@@ -73,7 +76,9 @@ def pluralize(word: str) -> str:
     sep = "_" if "_" in word else (" " if " " in word else "")
     head, last = (word.rsplit(sep, 1) if sep else ("", word))
     lower = last.lower()
-    if lower in _IRREGULAR_PLURALS:
+    if lower in _UNCOUNTABLE:
+        plural = last
+    elif lower in _IRREGULAR_PLURALS:
         plural = _IRREGULAR_PLURALS[lower]
         plural = plural if last.islower() else plural[:1].upper() + plural[1:]
     elif re.search(r"[^aeiou]y$", lower):
@@ -90,11 +95,13 @@ def singularize(word: str) -> str:
     for singular, plural in _IRREGULAR_PLURALS.items():
         if lower == plural:
             return singular
+    if lower in _UNCOUNTABLE:
+        return word
     if lower.endswith("ies") and len(lower) > 4:
         return word[:-3] + "y"
-    if re.search(r"(ss|us|is)$", lower):
+    if re.search(r"(ss|us|is|as)$", lower):
         return word
-    if re.search(r"(xes|ches|shes|sses|zes)$", lower):
+    if re.search(r"(xes|ches|shes|sses|zes)$", lower) or re.search(r"(?<![aeiou])uses$", lower):
         return word[:-2]
     if lower.endswith("s") and len(lower) > 3:
         return word[:-1]

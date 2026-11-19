@@ -22,7 +22,7 @@ def test_ecommerce_prompt_generates_and_validates_a_working_app(tmp_path):
     assert state.execution_status == AgentStatus.COMPLETED, state.error_reports
     app = Path(state.app_dir)
     for rel in ["backend/app/routers/products.py", "backend/app/routers/cart_items.py", "backend/app/routers/orders.py",
-                "frontend/src/pages/ProductsPage.jsx", "backend/migrations/001_initial_schema.sql",
+                "frontend/src/pages/ProductListingsPage.jsx", "backend/migrations/001_initial_schema.sql",
                 "docker-compose.yml", "README.md", "docs/REQUIREMENTS.md", "forge_manifest.json"]:
         assert (app / rel).is_file(), rel
     qa = state.agent_outputs["qa"]
@@ -30,6 +30,7 @@ def test_ecommerce_prompt_generates_and_validates_a_working_app(tmp_path):
     check_names = {c["name"]: c["status"] for c in qa["checks"]}
     assert check_names["PostgreSQL DDL compilation"] == "passed"
     assert check_names["UI/API contract (frontend calls exist in backend)"] == "passed"
+    assert check_names["Requirement coverage (prompt specification vs generated app)"] == "passed"
     assert check_names["Frontend production build (vite)"] == "skipped"
     deploy = state.agent_outputs["deploy"]
     assert deploy["status"] == "success" and all(h["status"] == "healthy" for h in deploy["health_checks"])

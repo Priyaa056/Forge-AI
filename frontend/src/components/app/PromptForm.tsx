@@ -62,13 +62,13 @@ export function PromptForm({
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         rows={mode === "project" ? 5 : 4}
-        maxLength={4000}
+        maxLength={20000}
         placeholder="Build a booking app for my yoga studio with class schedules, member logins and an admin dashboard."
         className={`${fieldClass} mt-2 resize-y`}
       />
       {mode === "iteration" && (
         <p className="mt-2 text-xs text-muted-foreground">
-          The agents regenerate the whole application from this prompt. The current version stays
+          The change is applied to the current specification and the agents regenerate the application. The current version stays
           active until the new build passes QA.
         </p>
       )}

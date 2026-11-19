@@ -1,0 +1,39 @@
+Analyze the existing MediCare Hospital project and correct it. The current application looks like a generic inventory management system, with Products, Categories, and other unrelated modules. This is not the requested Hospital Management System.
+
+Do not simply change page titles or rename Products to Patients. Review the existing frontend, backend APIs, database models, and navigation, then implement the actual hospital workflows.
+
+Make these corrections:
+
+1. Replace Products and Categories with proper Patient Management and Medical Records modules.
+2. Implement functional Doctor Management with doctor profiles, specializations, departments, and availability.
+3. Implement Appointment Management with patient selection, doctor selection, date, time, and appointment status.
+4. Implement Hospital Department Management.
+5. Implement Room and Bed Management with available, occupied, reserved, and maintenance statuses.
+6. Implement Patient Admission and Discharge workflows.
+7. Implement Pharmacy Management with medicine inventory, stock, and expiry tracking.
+8. Implement Laboratory Management with test requests and results.
+9. Implement Billing and Payments with invoices and outstanding balances.
+10. Implement Staff Management and Hospital Reports.
+
+Redesign the dashboard specifically for hospital operations. Display patient count, doctor count, today's appointments, admitted patients, available beds, occupied beds, pending bills, and recent hospital activities.
+
+Important UI requirements:
+- Keep the existing navy sidebar and teal accent color if suitable.
+- Use a professional healthcare dashboard design.
+- Remove unrelated inventory terminology.
+- Add relevant icons, tables, forms, charts, filters, and empty states.
+- Do not display the original generation prompt as dashboard content.
+- Do not show irrelevant generic modules.
+
+Important backend requirements:
+- Inspect and reuse existing project infrastructure where appropriate.
+- Create proper patient, doctor, appointment, department, bed, admission, prescription, laboratory, invoice, and payment models.
+- Connect the frontend to actual backend APIs.
+- Implement CRUD operations and validation.
+- Ensure relationships between records are correct.
+- Use synthetic demo records so the dashboard can demonstrate meaningful data.
+- Implement backend role-based permissions.
+
+Do not claim a feature is complete unless it is implemented and tested.
+
+After making the changes, run the frontend build and backend tests. Start the local preview and verify the main hospital pages and workflows.

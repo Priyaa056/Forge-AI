@@ -47,8 +47,8 @@ class UIAgent(BaseAgent[UIOutput]):
             "You are the UI/UX agent of FORGE AI. For the application below choose a visual identity. Return ONLY JSON: "
             '{"primary_color": "#RRGGBB (accessible on white)", "tagline": "one sentence shown on the dashboard", '
             '"design_system_notes": "one sentence"}\n\n'
-            f"Application: {bp.project_name}\nDescription: {bp.description}\n"
-            f"Entities: {', '.join(e.name for e in bp.entities)}"
+            f"Application: {bp.project_name}\nPurpose: {bp.purpose or bp.description[:300]}\n"
+            f"Modules: {', '.join(m.label for m in bp.modules)}"
         )
         data = extract_json(client.generate_text(prompt, json_mode=True))
         styling: Dict[str, Any] = {}

@@ -52,10 +52,12 @@ def test_generated_structure_and_ownership(shop_project):
     bp, project, _ui, _api = shop_project
     paths = {f["path"] for f in file_tree(project.root)}
     for expected in ["backend/app/main.py", "backend/app/models.py", "backend/app/security.py",
-                     "backend/app/routers/products.py", "backend/app/routers/order_items.py",
+                     "backend/app/routers/products.py", "backend/app/routers/orders.py",
+                     "backend/app/rules.py", "backend/app/seed_data.py",
                      "backend/migrations/001_initial_schema.sql", "frontend/src/App.jsx",
-                     "frontend/src/pages/CartItemsPage.jsx", "frontend/src/auth/AuthContext.jsx",
-                     "backend/tests/test_orders.py"]:
+                     "frontend/src/pages/ShoppingCartPage.jsx", "frontend/src/components/ModulePage.jsx",
+                     "frontend/src/auth/AuthContext.jsx", "backend/tests/test_orders.py",
+                     "backend/tests/test_permissions.py", "backend/tests/test_dashboard_metrics.py"]:
         assert expected in paths, expected
     owners = {p: m["agent"] for p, m in project.manifest.items()}
     assert owners["backend/app/models.py"] == "db"
@@ -90,7 +92,14 @@ def test_rbac_matrix_follows_access_policies(shop_project):
 
 
 def test_owner_scoped_unique_fields_are_unique_per_owner():
-    bp = build_blueprint(analyze_prompt(TASK_PROMPT))
+    from backend.schemas.pm_schema import DatabaseEntity, EntityField, PMOutput
+
+    pm = PMOutput(project_name="Todo", description="Personal tasks", database_entities=[
+        DatabaseEntity(name="Category", access="owner", fields=[EntityField(name="name", type="string", nullable=False, unique=True)]),
+        DatabaseEntity(name="Task", access="owner", fields=[EntityField(name="title", type="string", nullable=False),
+                                                            EntityField(name="category", type="reference", references="Category")]),
+    ])
+    bp = build_blueprint(pm)
     models = db_writer.render_models(bp)
     assert 'UniqueConstraint("owner_id", "name", name="uq_categories_owner_name")' in models
     up, down = db_writer.render_migration_sql(bp)
@@ -112,6 +121,7 @@ def test_entity_ui_config_is_valid_json(shop_project):
     _bp, project, _ui, _api = shop_project
     text = (project.root / "frontend" / "src" / "config" / "entities.js").read_text(encoding="utf-8")
     config = json.loads(text.split("=", 1)[1].strip().rstrip(";"))
-    assert config["OrderItem"]["endpoint"] == "/api/order-items"
+    assert config["Order"]["endpoint"] == "/api/orders"
+    assert config["Order"]["workflow"]["transitions"] and config["Order"]["modulePath"] == "/order-management"
     product_ref = next(f for f in config["CartItem"]["fields"] if f["name"] == "product_id")
     assert product_ref["reference"]["endpoint"] == "/api/products"

@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from backend.agents.base_agent import BaseAgent
 from backend.artifacts.artifact_context import ArtifactContext
+from backend.agents.requirement_coverage import check_requirement_coverage
 from backend.codegen.blueprint import build_blueprint
 from backend.codegen.qa_writer import write_test_files
 from backend.config import env_flag
@@ -190,12 +191,14 @@ class QAAgent(BaseAgent[QAOutput]):
         root = self.project.root
         backend_dir, frontend_dir = root / "backend", root / "frontend"
         test_files = write_test_files(bp, self.project)
-        self.log(f"Generated {len(test_files)} test files covering {len(bp.entities)} resources, auth and admin")
+        self.log(f"Generated {len(test_files)} test files covering {len(bp.entities)} resources, {len(bp.workflows)} workflows, "
+                 f"{len(bp.rules)} business rules, {len(bp.metrics)} dashboard metrics, auth and admin")
 
         checks: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
         tests: List[Dict[str, Any]] = []
         frontend_build = "skipped"
+        coverage: Dict[str, Any] = {"items": [], "correction_tasks": [], "unsupported": [], "summary": ""}
 
         def error(category: str, component: str, message: str, test_name: Optional[str] = None):
             classification = FailureClassifier.classify(message)
@@ -231,7 +234,9 @@ class QAAgent(BaseAgent[QAOutput]):
             started = time.monotonic()
             if routes:
                 registered = {(meth, re.sub(r"\{[^}]+\}", "{id}", path)) for meth, path in routes}
-                needed = {(r.method.upper(), re.sub(r"\{[^}]+\}", "{id}", r.endpoint)) for r in self.ui_data.api_requirements}
+                # workflow steps are served by one parameterised route: /actions/{action}
+                needed = {(r.method.upper(), re.sub(r"/actions/[\w-]+$", "/actions/{id}", re.sub(r"\{[^}]+\}", "{id}", r.endpoint)))
+                          for r in self.ui_data.api_requirements}
                 missing = sorted(f"{a} {b}" for a, b in needed - registered)
                 self._add(checks, "UI/API contract (frontend calls exist in backend)", "integration",
                           "failed" if missing else "passed", started,
@@ -241,6 +246,18 @@ class QAAgent(BaseAgent[QAOutput]):
             else:
                 self._add(checks, "UI/API contract (frontend calls exist in backend)", "integration", "skipped", started,
                           "Backend did not import")
+
+            started = time.monotonic()
+            coverage = check_requirement_coverage(self.pm_data, root, routes or None)
+            gaps = [i for i in coverage["items"] if i["status"] == "missing"]
+            self._add(checks, "Requirement coverage (prompt specification vs generated app)", "integration",
+                      "failed" if gaps else "passed", started,
+                      coverage["summary"] + ("\nMissing: " + "; ".join(f"{g['requirement']} ({g['issue']})" for g in gaps[:20])
+                                             if gaps else ""))
+            for g in gaps:
+                component = {"UIAgent": "frontend", "DBAgent": "database", "AuthAgent": "auth",
+                             "QAAgent": "qa"}.get(g["agent"], "backend")
+                error("IntegrationError", component, f"Requirement not implemented: {g['requirement']} - {g['issue']}")
 
             started = time.monotonic()
             code, out = self._python(DDL_SCRIPT, backend_dir, env)
@@ -324,6 +341,9 @@ class QAAgent(BaseAgent[QAOutput]):
             "test_results": tests,
             "frontend_build": frontend_build,
             "generated_test_files": test_files,
+            "requirement_coverage": coverage["items"],
+            "correction_tasks": coverage["correction_tasks"],
+            "unsupported_requests": coverage["unsupported"],
         }
         healing = SelfHealingManager(max_attempts=1).evaluate(report)
         report["repair_recommendation"] = (healing.repair_request.summary if healing.repair_request else healing.message)
@@ -331,6 +351,7 @@ class QAAgent(BaseAgent[QAOutput]):
         skipped = [c["name"] for c in checks if c["status"] == "skipped"]
         report["summary"] = (
             f"{passed_tests}/{len(tests)} generated tests passed; {len(executed) - len(failed_checks)}/{len(executed)} checks passed"
+            + (f"; {coverage['summary']}" if coverage.get("summary") else "")
             + (f"; skipped: {', '.join(skipped)}" if skipped else "")
         )
         self.log(f"QA {status.upper()}: {report['summary']}", "info" if status == "passed" else "warning")

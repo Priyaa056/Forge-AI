@@ -383,6 +383,28 @@ class ForgePipeline:
             error_message=clean_err, artifact_id=failed_artifact_id, input_artifact_ids=input_artifact_ids)
         self._notify()
 
+    def _run_corrections(self) -> bool:
+        """Re-run the agents named in the QA report's correction tasks (one round per run)."""
+        if getattr(self, "_corrections_done", False):
+            return False
+        tasks = (self.state.agent_outputs.get(PipelineStage.QA.value) or {}).get("correction_tasks") or []
+        by_agent = {"UIAgent": PipelineStage.UI, "BackendAgent": PipelineStage.BACKEND, "DBAgent": PipelineStage.DB,
+                    "AuthAgent": PipelineStage.AUTH}
+        targets = {by_agent[t.get("agent")] for t in tasks if t.get("agent") in by_agent}
+        if not targets:
+            return False
+        self._corrections_done = True
+        log = self._agent_logger(PipelineStage.QA)
+        for task in tasks:
+            log(f"Correction task for {task.get('agent')}: " + "; ".join(task.get("issues", [])[:5]), "warning")
+        for stage in STAGE_ORDER:  # dependants of a corrected stage are regenerated too
+            if stage in targets or (stage in by_agent.values() and any(
+                    t in STAGE_LINEAGE_DEPENDENCIES.get(stage, []) for t in targets)):
+                targets.add(stage)
+                self.run_stage(stage)
+        self.state.error_reports.pop(PipelineStage.QA.value, None)
+        return True
+
     def retry_stage(self, stage: PipelineStage) -> BaseModel:
         """Retry a failed stage."""
         self.state.agent_statuses[stage] = AgentStatus.RETRYING
@@ -414,7 +436,14 @@ class ForgePipeline:
         self._notify()
         for index, stage in enumerate(STAGE_ORDER):
             try:
-                self.run_stage(stage)
+                try:
+                    self.run_stage(stage)
+                except StageGateFailed:
+                    # requirement-based QA: send targeted correction tasks to the responsible agents once,
+                    # then verify again; the run fails if the requirements are still not implemented.
+                    if stage != PipelineStage.QA or not self._run_corrections():
+                        raise
+                    self.run_stage(stage)
             except Exception as exc:  # noqa: BLE001
                 for later in STAGE_ORDER[index + 1:]:
                     self.state.agent_statuses[later] = AgentStatus.SKIPPED

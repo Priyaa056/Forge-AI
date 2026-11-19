@@ -1,4 +1,4 @@
-"""PM agent requirement analysis: prompt validation, domain/entity extraction and normalization."""
+"""PM agent requirement analysis: prompt validation, the prompt-driven specification and normalization."""
 
 import pytest
 
@@ -13,6 +13,10 @@ def entities(pm):
     return {e.name: e for e in pm.database_entities}
 
 
+def fields(pm, entity):
+    return {f.name: f for f in entities(pm)[entity].fields}
+
+
 @pytest.mark.parametrize("prompt", ["", "   ", "app", "make app now", "asdf qwrt zxcv plkj mnbv", "I want something nice for me please"])
 def test_vague_or_invalid_prompts_are_rejected(prompt):
     with pytest.raises(PromptValidationError):
@@ -22,28 +26,28 @@ def test_vague_or_invalid_prompts_are_rejected(prompt):
 def test_task_prompt_produces_prompt_specific_requirements():
     pm = analyze_prompt(TASK_PROMPT)
     ents = entities(pm)
-    assert pm.app_type == "task_management"
-    assert {"User", "Task", "Category"} <= set(ents)
-    task_fields = {f.name: f for f in ents["Task"].fields}
-    assert task_fields["status"].type == "enum" and task_fields["status"].enum_values
-    assert task_fields["category_id"].references == "Category"
-    assert task_fields["owner_id"].references == "User" and task_fields["owner_id"].read_only
-    assert ents["Task"].access == "owner"
+    assert pm.project_name == "Task Management Application"
+    assert set(ents) == {"User", "Task", "Category"}
+    task = fields(pm, "Task")
+    assert task["status"].type == "enum" and task["status"].enum_values
+    assert task["category_id"].references == "Category"
+    assert [m.label for m in pm.module_specs] == ["Tasks", "Categories"]
     assert {r.name for r in pm.user_roles} >= {"admin", "user"}
     assert pm.has_admin_dashboard
     assert pm.functional_requirements and pm.non_functional_requirements and pm.development_plan
     assert pm.source_prompt == TASK_PROMPT
+    assert any(w.entity == "Task" for w in pm.workflows)
 
 
 def test_ecommerce_prompt_is_not_a_task_app():
     pm = analyze_prompt(SHOP_PROMPT)
     ents = entities(pm)
-    assert pm.app_type == "ecommerce"
-    assert {"Product", "CartItem", "Order", "OrderItem"} <= set(ents)
+    assert {"Product", "CartItem", "Order"} <= set(ents)
     assert "Task" not in ents
     assert ents["Product"].access == "admin_managed"
-    refs = {f.name: f.references for f in ents["OrderItem"].fields if f.references}
-    assert refs["order_id"] == "Order" and refs["product_id"] == "Product"
+    assert ents["CartItem"].access == "owner" and ents["Order"].access == "owner"
+    assert fields(pm, "CartItem")["product_id"].references == "Product"
+    assert [m.label for m in pm.module_specs] == ["Product listings", "Shopping cart", "Order management"]
 
 
 def test_different_prompts_give_different_requirements():
@@ -55,6 +59,8 @@ def test_different_prompts_give_different_requirements():
 def test_generic_nouns_become_entities():
     pm = analyze_prompt("Create an app to track my houseplants and their watering schedule")
     assert "Houseplant" in entities(pm)
+    assert "watering_schedule" in fields(pm, "Houseplant")
+    assert entities(pm)["Houseplant"].access == "owner"  # "my houseplants"
 
 
 def test_named_project_is_respected():
@@ -68,8 +74,7 @@ def test_entities_are_ordered_by_dependency():
     pm = analyze_prompt(SHOP_PROMPT)
     order = [e.name for e in pm.database_entities]
     assert order[0] == "User"
-    assert order.index("Product") < order.index("OrderItem")
-    assert order.index("Order") < order.index("OrderItem")
+    assert order.index("Product") < order.index("CartItem")
 
 
 def test_normalization_repairs_messy_llm_style_output():
@@ -99,6 +104,9 @@ def test_normalization_repairs_messy_llm_style_output():
     assert member["trainer_id"].references == "Trainer"
     assert ents["Member"].access == "owner" and "owner_id" in member
     assert list(member)[0] == "id"
+    # the dynamic specification is completed for LLM output too
+    assert sorted(m.entities[0] for m in pm.module_specs) == ["Member", "Trainer"]
+    assert {(p.role, p.entity) for p in pm.role_permissions} >= {("admin", "Member"), ("user", "Trainer")}
 
 
 def test_normalization_rejects_requirements_without_entities():
@@ -123,3 +131,13 @@ def test_legacy_generate_pm_output_helper_returns_json():
 
     data = json.loads(generate_pm_output(TASK_PROMPT))
     assert data["project_name"] and data["database_entities"]
+
+
+def test_iteration_applies_change_request_to_existing_specification():
+    previous = analyze_prompt(TASK_PROMPT).model_dump()
+    agent = PMAgent(user_prompt="Also add projects and replace categories with labels.", previous_requirements=previous)
+    agent.load_inputs()
+    pm = PMOutput.model_validate(agent.generate())
+    ents = entities(pm)
+    assert {"Task", "Project"} <= set(ents)
+    assert "Category" not in ents

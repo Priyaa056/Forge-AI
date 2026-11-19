@@ -3,9 +3,19 @@
 import json
 from typing import Dict, List
 
-from backend.codegen.blueprint import Blueprint, entity_ui_config
-from backend.codegen.naming import to_pascal
+from backend.codegen.blueprint import Blueprint, BModule, entity_ui_config
+from backend.codegen.frontend_spec import (
+    DASHBOARD_JSX,
+    EXTRA_CSS,
+    LAYOUT_JSX,
+    MODULE_PAGE_JSX,
+    PERMISSIONS_JS,
+    REPORTS_JSX,
+    RESOURCE_PAGE_JSX,
+)
+from backend.codegen.naming import humanize, to_pascal
 from backend.codegen.project_files import GeneratedProject
+from backend.codegen.spec_runtime import entity_rule_config
 
 AGENT = "ui"
 
@@ -30,10 +40,22 @@ def page_component_name(entity_plural_label: str) -> str:
     return f"{to_pascal(entity_plural_label)}Page"
 
 
+def module_component_name(module: BModule) -> str:
+    return f"{to_pascal(module.key or module.label)}Page"
+
+
+def primary_color(bp: Blueprint, styling: Dict) -> str:
+    return (bp.theme.get("primary_color") or styling.get("primary_color") or THEMES.get(bp.app_type, "#2563eb"))
+
+
 def build_ui_spec(bp: Blueprint, styling: Dict = None) -> Dict:
-    """UIOutput-compatible specification (pages, components, routes, forms, API requirements, styling)."""
+    """UIOutput-compatible specification (pages, components, routes, forms, API requirements, styling).
+
+    Pages and navigation come from the specification's modules (in the user's terminology); workflow
+    buttons, dashboard widgets and the reports page come from its workflows, metrics and modules.
+    """
     styling = styling or {}
-    primary = styling.get("primary_color") or THEMES.get(bp.app_type, "#2563eb")
+    primary = primary_color(bp, styling)
     pages, routes, forms, api = [], [], [], []
 
     pages.append({"name": "LoginPage", "route_path": "/login", "layout": "AuthLayout", "description": "Sign in with email and password",
@@ -41,13 +63,22 @@ def build_ui_spec(bp: Blueprint, styling: Dict = None) -> Dict:
     pages.append({"name": "RegisterPage", "route_path": "/register", "layout": "AuthLayout", "description": "Create an account",
                   "components_used": ["AuthCard"], "required_auth": False, "state_requirements": ["full_name", "email", "password"]})
     pages.append({"name": "DashboardPage", "route_path": "/", "layout": "MainLayout",
-                  "description": f"Overview of the signed-in user's {', '.join(e.plural_label.lower() for e in bp.entities)}",
-                  "components_used": ["Layout", "StatCard"], "required_auth": True, "state_requirements": ["summary"]})
+                  "description": "Dashboard: " + "; ".join(m["label"] for m in bp.metrics)[:300],
+                  "components_used": ["Layout", "StatCard", "ListCard", "BreakdownCard", "TrendCard"], "required_auth": True,
+                  "state_requirements": ["metrics"]})
+    for module in bp.modules:
+        if module.kind == "reports":
+            pages.append({"name": "ReportsPage", "route_path": module.path, "layout": "MainLayout",
+                          "description": "Reports with date filters: counts, status breakdowns, totals and monthly trends",
+                          "components_used": ["Layout"], "required_auth": True, "state_requirements": ["range", "sections"]})
+            api.append({"endpoint": "/api/reports", "method": "GET", "description": "Reports"})
+            continue
+        entities = [bp.entity(n) for n in module.entities]
+        pages.append({"name": module_component_name(module), "route_path": module.path, "layout": "MainLayout",
+                      "description": f"{module.name}: " + ", ".join(e.plural_label for e in entities),
+                      "components_used": ["Layout", "ModulePage", "ResourcePage", "EntityForm", "Modal"], "required_auth": True,
+                      "state_requirements": ["tab", "items", "total", "query", "filters", "editing", "viewing"]})
     for e in bp.entities:
-        pages.append({"name": page_component_name(e.plural_label), "route_path": e.ui_path, "layout": "MainLayout",
-                      "description": f"Search, filter, create, edit and delete {e.plural_label.lower()}",
-                      "components_used": ["Layout", "ResourcePage", "EntityForm", "Modal"], "required_auth": True,
-                      "state_requirements": ["items", "total", "query", "filters", "editing"]})
         forms.append({"name": f"{e.name}Form", "form_name": f"{e.name}Form", "entity_name": e.name,
                       "fields": [{"name": f.name, "label": f.label, "input_type": f.input_type, "required": f.required,
                                   **({"options": f.enum_values} if f.enum_values else {}),
@@ -61,9 +92,12 @@ def build_ui_spec(bp: Blueprint, styling: Dict = None) -> Dict:
             {"endpoint": f"{e.api_path}/{{id}}", "method": "PUT", "description": f"Update {e.label.lower()}"},
             {"endpoint": f"{e.api_path}/{{id}}", "method": "DELETE", "description": f"Delete {e.label.lower()}"},
         ]
+        for action, t in entity_rule_config(bp, e)["transitions"].items():
+            api.append({"endpoint": f"{e.api_path}/{{id}}/actions/{action}", "method": "POST",
+                        "description": f"{t['label']} ({e.label.lower()} workflow)"})
     if bp.has_admin_dashboard:
         pages.append({"name": "AdminPage", "route_path": "/admin", "layout": "MainLayout",
-                      "description": "Statistics, status breakdowns and user management (admins only)",
+                      "description": "Statistics, status breakdowns and user/role management (admins only)",
                       "components_used": ["Layout", "StatCard", "BarList", "UsersTable"], "required_auth": True,
                       "state_requirements": ["stats", "users"]})
         api += [
@@ -76,24 +110,29 @@ def build_ui_spec(bp: Blueprint, styling: Dict = None) -> Dict:
         {"endpoint": "/api/auth/login", "method": "POST", "description": "Sign in"},
         {"endpoint": "/api/auth/register", "method": "POST", "description": "Register"},
         {"endpoint": "/api/auth/me", "method": "GET", "description": "Current user"},
-        {"endpoint": "/api/dashboard/summary", "method": "GET", "description": "Dashboard counts"},
+        {"endpoint": "/api/dashboard/metrics", "method": "GET", "description": "Dashboard metrics"},
     ]
     for p in pages:
         routes.append({"path": p["route_path"], "component_name": p["name"], "exact": True,
                        "protected": p["required_auth"], "title": p["description"][:60]})
     components = [
-        {"name": "Layout", "type": "layout", "description": "Sidebar navigation, header with user menu and logout",
+        {"name": "Layout", "type": "layout", "description": "Sidebar navigation from the specification's modules, header with user menu",
          "props": [{"name": "children", "type": "node"}], "state_variables": [{"name": "menuOpen", "default": "false"}],
          "event_handlers": ["logout"], "child_components": []},
-        {"name": "ResourcePage", "type": "container", "description": "Data table with search, filters, pagination and CRUD modal",
+        {"name": "ModulePage", "type": "container", "description": "One module; a tab per record type when the module groups several",
+         "props": [{"name": "module", "type": "object"}], "state_variables": [{"name": "tab", "default": "first entity"}],
+         "event_handlers": ["onTab"], "child_components": ["ResourcePage"]},
+        {"name": "ResourcePage", "type": "container",
+         "description": "Data table with search, filters, pagination, CRUD modal, workflow buttons and related records",
          "props": [{"name": "config", "type": "object"}], "state_variables": [{"name": "items", "default": "[]"}],
-         "event_handlers": ["onSearch", "onFilter", "onCreate", "onEdit", "onDelete"], "child_components": ["EntityForm", "Modal"]},
+         "event_handlers": ["onSearch", "onFilter", "onCreate", "onEdit", "onDelete", "onWorkflowAction", "onView"],
+         "child_components": ["EntityForm", "Modal"]},
         {"name": "EntityForm", "type": "form", "description": "Typed form generated from field metadata with client-side validation",
          "props": [{"name": "config", "type": "object"}, {"name": "initial", "type": "object"}],
          "state_variables": [{"name": "values", "default": "{}"}], "event_handlers": ["onSubmit"], "child_components": []},
         {"name": "Modal", "type": "presentational", "description": "Accessible dialog", "props": [{"name": "title", "type": "string"}],
          "state_variables": [], "event_handlers": ["onClose"], "child_components": []},
-        {"name": "StatCard", "type": "presentational", "description": "Metric card", "props": [{"name": "label", "type": "string"}],
+        {"name": "StatCard", "type": "presentational", "description": "Metric card", "props": [{"name": "metric", "type": "object"}],
          "state_variables": [], "event_handlers": [], "child_components": []},
     ]
     return {
@@ -193,49 +232,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </BrowserRouter>
   </React.StrictMode>,
 );
-"""
-
-LAYOUT_JSX = """import { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '../auth/AuthContext.jsx';
-import { APP_NAME, NAV_ITEMS } from '../config/app.js';
-
-export default function Layout({ children }) {
-  const { user, isAdmin, logout } = useAuth();
-  const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const items = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
-
-  const handleLogout = () => { logout(); navigate('/login'); };
-
-  return (
-    <div className="shell">
-      <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
-        <div className="brand">{APP_NAME}</div>
-        <nav>
-          {items.map((item) => (
-            <NavLink key={item.path} to={item.path} end={item.path === '/'} onClick={() => setMenuOpen(false)}
-              className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
-      <div className="main">
-        <header className="topbar">
-          <button className="btn btn-ghost menu-toggle" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle menu">☰</button>
-          <div className="spacer" />
-          <div className="user-chip">
-            <span className="avatar">{(user?.full_name || '?').slice(0, 1).toUpperCase()}</span>
-            <span><strong>{user?.full_name}</strong><small>{user?.role}</small></span>
-          </div>
-          <button className="btn btn-ghost" onClick={handleLogout}>Log out</button>
-        </header>
-        <main className="content">{children}</main>
-      </div>
-    </div>
-  );
-}
 """
 
 MODAL_JSX = """export default function Modal({ title, onClose, children }) {
@@ -369,209 +365,6 @@ export default function EntityForm({ config, initial, refOptions, onSubmit, onCa
 }
 """
 
-RESOURCE_PAGE_JSX = """import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '../api/client.js';
-import { useAuth } from '../auth/AuthContext.jsx';
-import EntityForm from './EntityForm.jsx';
-import Modal from './Modal.jsx';
-import { formatValue, humanize } from '../utils/format.js';
-
-const PAGE_SIZE = 10;
-
-export default function ResourcePage({ config }) {
-  const { isAdmin } = useAuth();
-  const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(0);
-  const [query, setQuery] = useState('');
-  const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [editing, setEditing] = useState(null);
-  const [refOptions, setRefOptions] = useState({});
-
-  const canWrite = config.access !== 'admin_managed' || isAdmin;
-  const canDelete = canWrite && (config.access !== 'shared' || isAdmin);
-  const columns = useMemo(() => config.fields.filter((f) => f.name !== 'owner_id' && f.kind !== 'text').slice(0, 7), [config]);
-  const filterFields = useMemo(() => config.fields.filter((f) => config.filters.includes(f.name)), [config]);
-
-  const refLabels = useMemo(() => Object.fromEntries(Object.entries(refOptions).map(
-    ([field, options]) => [field, Object.fromEntries(options.map((o) => [o.id, o.label]))])), [refOptions]);
-
-  useEffect(() => {
-    config.fields.filter((f) => f.kind === 'reference' && f.reference?.endpoint).forEach((f) => {
-      api.get(f.reference.endpoint, { limit: 200 })
-        .then((data) => setRefOptions((prev) => ({ ...prev, [f.name]: data.items.map((r) => ({ id: r.id, label: String(r[f.reference.labelField] ?? `#${r.id}`) })) })))
-        .catch(() => {});
-    });
-  }, [config]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await api.get(config.endpoint, { q: search, skip: page * PAGE_SIZE, limit: PAGE_SIZE, ...filters });
-      setItems(data.items);
-      setTotal(data.total);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [config.endpoint, search, page, filters]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const save = async (payload) => {
-    if (editing && editing.id) {
-      await api.put(`${config.endpoint}/${editing.id}`, payload);
-      setNotice(`${config.label} updated`);
-    } else {
-      await api.post(config.endpoint, payload);
-      setNotice(`${config.label} created`);
-    }
-    setEditing(null);
-    load();
-  };
-
-  const remove = async (item) => {
-    if (!window.confirm(`Delete this ${config.label.toLowerCase()}?`)) return;
-    try {
-      await api.delete(`${config.endpoint}/${item.id}`);
-      setNotice(`${config.label} deleted`);
-      load();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  return (
-    <section>
-      <div className="page-header">
-        <div>
-          <h1>{config.pluralLabel}</h1>
-          <p className="muted">{total} record{total === 1 ? '' : 's'}{config.access === 'owner' && !isAdmin ? ' (yours)' : ''}</p>
-        </div>
-        {canWrite && <button className="btn btn-primary" onClick={() => setEditing({})}>+ New {config.label.toLowerCase()}</button>}
-      </div>
-
-      <div className="toolbar card">
-        {config.searchable && (
-          <form className="search" onSubmit={(e) => { e.preventDefault(); setPage(0); setSearch(query); }}>
-            <input type="search" placeholder={`Search ${config.pluralLabel.toLowerCase()}…`} value={query} onChange={(e) => setQuery(e.target.value)} />
-            <button className="btn" type="submit">Search</button>
-          </form>
-        )}
-        {filterFields.map((f) => (
-          <select key={f.name} aria-label={`Filter by ${f.label}`} value={filters[f.name] ?? ''}
-            onChange={(e) => { setPage(0); setFilters({ ...filters, [f.name]: e.target.value }); }}>
-            <option value="">All {f.label.toLowerCase()}</option>
-            {f.kind === 'boolean' && [<option key="t" value="true">Yes</option>, <option key="f" value="false">No</option>]}
-            {f.options && f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            {f.kind === 'reference' && (refOptions[f.name] || []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-          </select>
-        ))}
-      </div>
-
-      {notice && <div className="alert alert-success" onAnimationEnd={() => setNotice('')}>{notice}</div>}
-      {error && <div className="alert alert-error" role="alert">{error}</div>}
-
-      <div className="card table-card">
-        {loading ? <div className="empty-state">Loading…</div> : items.length === 0 ? (
-          search || Object.values(filters).some((v) => v !== '' && v !== undefined) ? (
-            <div className="empty-state"><h3>No matching {config.pluralLabel.toLowerCase()}</h3><p>Try a different search or filter.</p></div>
-          ) : (
-            <div className="empty-state">
-              <h3>No {config.pluralLabel.toLowerCase()} yet</h3>
-              {canWrite && <p>Create the first one with “New {config.label.toLowerCase()}”.</p>}
-            </div>
-          )
-        ) : (
-          <table>
-            <thead><tr>{columns.map((c) => <th key={c.name}>{c.label}</th>)}<th aria-label="Actions" /></tr></thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id}>
-                  {columns.map((c) => (
-                    <td key={c.name} data-label={c.label}>
-                      {c.kind === 'enum' ? <span className={`badge badge-${item[c.name]}`}>{humanize(item[c.name])}</span> : formatValue(c, item[c.name], refLabels)}
-                    </td>
-                  ))}
-                  <td className="row-actions">
-                    {canWrite && <button className="btn btn-small" onClick={() => setEditing(item)}>Edit</button>}
-                    {canDelete && <button className="btn btn-small btn-danger" onClick={() => remove(item)}>Delete</button>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {pages > 1 && (
-        <div className="pagination">
-          <button className="btn" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
-          <span>Page {page + 1} of {pages}</span>
-          <button className="btn" disabled={page + 1 >= pages} onClick={() => setPage(page + 1)}>Next</button>
-        </div>
-      )}
-
-      {editing && (
-        <Modal title={editing.id ? `Edit ${config.label.toLowerCase()}` : `New ${config.label.toLowerCase()}`} onClose={() => setEditing(null)}>
-          <EntityForm config={config} initial={editing.id ? editing : null} refOptions={refOptions}
-            onSubmit={save} onCancel={() => setEditing(null)} />
-        </Modal>
-      )}
-    </section>
-  );
-}
-"""
-
-DASHBOARD_JSX = """import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { api } from '../api/client.js';
-import { useAuth } from '../auth/AuthContext.jsx';
-import { APP_DESCRIPTION, FEATURES } from '../config/app.js';
-
-export default function DashboardPage() {
-  const { user, isAdmin } = useAuth();
-  const [summary, setSummary] = useState(null);
-  const [error, setError] = useState('');
-
-  useEffect(() => { api.get('/api/dashboard/summary').then(setSummary).catch((e) => setError(e.message)); }, []);
-
-  return (
-    <section>
-      <div className="page-header">
-        <div>
-          <h1>Welcome, {user?.full_name?.split(' ')[0]}</h1>
-          <p className="muted">{APP_DESCRIPTION}</p>
-        </div>
-        {isAdmin && <Link className="btn btn-primary" to="/admin">Admin dashboard</Link>}
-      </div>
-      {error && <div className="alert alert-error">{error}</div>}
-      <div className="stat-grid">
-        {(summary?.entities || []).map((e) => (
-          <Link key={e.name} to={e.path} className="card stat-card">
-            <span className="stat-label">{e.label}</span>
-            <span className="stat-value">{e.count}</span>
-            <span className="stat-link">Open →</span>
-          </Link>
-        ))}
-      </div>
-      <div className="card">
-        <h2>What you can do</h2>
-        <ul className="feature-list">{FEATURES.map((f) => <li key={f}>{f}</li>)}</ul>
-      </div>
-    </section>
-  );
-}
-"""
-
 ADMIN_JSX = """import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../auth/AuthContext.jsx';
@@ -695,11 +488,11 @@ h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
 h2 { font-size: 1.1rem; margin: 0 0 .75rem; }
 .muted { color: var(--muted); margin: 0; }
 .shell { display: flex; min-height: 100vh; }
-.sidebar { width: 240px; background: #111827; color: #e5e7eb; padding: 1.25rem 1rem; flex-shrink: 0; }
+.sidebar { width: 240px; background: __SIDEBAR__; color: #e5e7eb; padding: 1.25rem 1rem; flex-shrink: 0; }
 .brand { font-weight: 700; font-size: 1.15rem; margin-bottom: 1.5rem; color: white; }
 .sidebar nav { display: flex; flex-direction: column; gap: .25rem; }
 .nav-link { color: #cbd5e1; padding: .6rem .75rem; border-radius: 8px; }
-.nav-link:hover { background: #1f2937; }
+.nav-link:hover { background: rgba(255, 255, 255, .08); }
 .nav-link.active { background: var(--primary); color: white; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar { display: flex; align-items: center; gap: .75rem; padding: .75rem 1.5rem; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -790,10 +583,10 @@ def render_app_jsx(bp: Blueprint) -> str:
     if bp.has_admin_dashboard:
         imports.append("import AdminPage from './pages/AdminPage.jsx';")
     routes = ['          <Route index element={<DashboardPage />} />']
-    for e in bp.entities:
-        comp = page_component_name(e.plural_label)
+    for module in bp.modules:
+        comp = "ReportsPage" if module.kind == "reports" else module_component_name(module)
         imports.append(f"import {comp} from './pages/{comp}.jsx';")
-        routes.append(f'          <Route path="{e.ui_path.lstrip("/")}" element={{<{comp} />}} />')
+        routes.append(f'          <Route path="{module.path.lstrip("/")}" element={{<{comp} />}} />')
     if bp.has_admin_dashboard:
         routes.append('          <Route path="admin" element={<ProtectedRoute adminOnly><AdminPage /></ProtectedRoute>} />')
     routes.append('          <Route path="*" element={<NotFoundPage />} />')
@@ -821,38 +614,58 @@ export default function App() {
 """
 
 
-def render_entity_page(e) -> str:
-    comp = page_component_name(e.plural_label)
-    return f"""import ResourcePage from '../components/ResourcePage.jsx';
-import {{ ENTITIES }} from '../config/entities.js';
+def render_module_page(module: BModule) -> str:
+    comp = module_component_name(module)
+    return f"""import ModulePage from '../components/ModulePage.jsx';
+import {{ MODULES }} from '../config/app.js';
 
-// {e.plural_label}: {e.description or 'records'} (access policy: {e.access})
+// {module.name} ({', '.join(module.entities)})
 export default function {comp}() {{
-  return <ResourcePage config={{ENTITIES.{e.name}}} />;
+  return <ModulePage module={{MODULES[{json.dumps(module.key)}]}} />;
 }}
 """
 
 
 def render_app_config(bp: Blueprint, ui_spec: Dict) -> str:
-    nav = [{"path": "/", "label": "Dashboard", "adminOnly": False}]
-    nav += [{"path": e.ui_path, "label": e.plural_label, "adminOnly": False} for e in bp.entities]
+    nav = [{"path": "/", "label": "Dashboard", "name": "Dashboard", "entities": [], "adminOnly": False}]
+    nav += [{"path": m.path, "label": m.label, "name": m.name, "entities": m.entities, "adminOnly": False} for m in bp.modules]
     if bp.has_admin_dashboard:
-        nav.append({"path": "/admin", "label": "Admin", "adminOnly": True})
-    features = [f for f in bp.features][:10]
-    description = ui_spec.get("styling_requirements", {}).get("tagline") or bp.description
+        nav.append({"path": "/admin", "label": "Admin", "name": "Administration", "entities": [], "adminOnly": True})
+    modules = {m.key: {"key": m.key, "label": m.label, "name": m.name, "path": m.path, "entities": m.entities,
+                       "description": m.description[:200]} for m in bp.modules if m.kind != "reports"}
+    purpose = bp.purpose or ui_spec.get("styling_requirements", {}).get("tagline") or ""
     return "\n".join([
-        "// Application configuration (generated by FORGE AI UI Agent from ui_spec.json)",
+        "// Application configuration (generated by FORGE AI UI Agent from the application specification)",
         f"export const APP_NAME = {json.dumps(bp.project_name)};",
-        f"export const APP_DESCRIPTION = {json.dumps(description[:240])};",
+        f"export const APP_PURPOSE = {json.dumps(purpose[:240])};",
         f"export const ROLES = {json.dumps(bp.roles)};",
-        f"export const FEATURES = {json.dumps(features, indent=2)};",
+        f"export const ADMIN_ROLES = {json.dumps(bp.admin_roles)};",
+        f"export const PERMISSIONS = {json.dumps(bp.permissions, indent=2)};",
+        f"export const MODULES = {json.dumps(modules, indent=2)};",
         f"export const NAV_ITEMS = {json.dumps(nav, indent=2)};",
     ])
 
 
+def entity_frontend_config(bp: Blueprint, e) -> Dict:
+    config = entity_ui_config(e, bp)
+    cfg = entity_rule_config(bp, e)
+    if cfg["transitions"]:
+        config["workflow"] = {"field": cfg["workflow_field"], "transitions": [
+            {"action": a, "label": t["label"], "from": t["from"], "to": t["to"]} for a, t in cfg["transitions"].items()]}
+    config["children"] = [{"entity": child.name, "field": f.name,
+                           "label": child.plural_label.capitalize() + (f" ({f.label.lower()})" if sum(
+                               1 for c, _ in bp.children_of(e.name) if c.name == child.name) > 1 else "")}
+                          for child, f in bp.children_of(e.name)]
+    module = bp.module_of(e.name)
+    config["modulePath"] = (module.path + (f"?tab={e.name}" if len(module.entities) > 1 else "")) if module else "/"
+    config["pluralLabel"] = humanize(e.plural_snake).capitalize()
+    config["label"] = humanize(e.snake).capitalize()
+    return config
+
+
 def render_entities_config(bp: Blueprint) -> str:
-    configs = {e.name: entity_ui_config(e, bp) for e in bp.entities}
-    return ("// Entity metadata used by the CRUD pages (generated by FORGE AI UI Agent from ui_spec.json)\n"
+    configs = {e.name: entity_frontend_config(bp, e) for e in bp.entities}
+    return ("// Entity metadata used by the module pages (generated by FORGE AI UI Agent from the application specification)\n"
             f"export const ENTITIES = {json.dumps(configs, indent=2)};\n")
 
 
@@ -883,7 +696,8 @@ export default defineConfig({
 
 
 def write_frontend_files(bp: Blueprint, project: GeneratedProject, ui_spec: Dict) -> List[str]:
-    primary = ui_spec.get("styling_requirements", {}).get("primary_color", "#2563eb")
+    primary = primary_color(bp, ui_spec.get("styling_requirements", {}))
+    sidebar = bp.theme.get("sidebar_color") or "#111827"
     project.write("frontend/package.json", render_package_json(bp), AGENT)
     project.write("frontend/vite.config.js", VITE_CONFIG, AGENT)
     project.write("frontend/index.html", f"""<!doctype html>
@@ -901,19 +715,24 @@ def write_frontend_files(bp: Blueprint, project: GeneratedProject, ui_spec: Dict
 """, AGENT)
     project.write("frontend/src/main.jsx", MAIN_JSX, AGENT)
     project.write("frontend/src/App.jsx", render_app_jsx(bp), AGENT)
-    project.write("frontend/src/styles.css", STYLES_CSS.replace("__PRIMARY__", primary), AGENT)
+    project.write("frontend/src/styles.css", STYLES_CSS.replace("__PRIMARY__", primary).replace("__SIDEBAR__", sidebar) + EXTRA_CSS, AGENT)
     project.write("frontend/src/api/client.js", API_CLIENT_JS.replace("__TOKEN_KEY__", f"{bp.slug}_token"), AGENT)
     project.write("frontend/src/config/app.js", render_app_config(bp, ui_spec), AGENT)
+    project.write("frontend/src/config/permissions.js", PERMISSIONS_JS, AGENT)
     project.write("frontend/src/config/entities.js", render_entities_config(bp), AGENT)
     project.write("frontend/src/utils/format.js", FORMAT_JS, AGENT)
     project.write("frontend/src/components/Layout.jsx", LAYOUT_JSX, AGENT)
     project.write("frontend/src/components/Modal.jsx", MODAL_JSX, AGENT)
     project.write("frontend/src/components/EntityForm.jsx", ENTITY_FORM_JSX, AGENT)
     project.write("frontend/src/components/ResourcePage.jsx", RESOURCE_PAGE_JSX, AGENT)
+    project.write("frontend/src/components/ModulePage.jsx", MODULE_PAGE_JSX, AGENT)
     project.write("frontend/src/pages/DashboardPage.jsx", DASHBOARD_JSX, AGENT)
     project.write("frontend/src/pages/NotFoundPage.jsx", NOT_FOUND_JSX, AGENT)
     if bp.has_admin_dashboard:
         project.write("frontend/src/pages/AdminPage.jsx", ADMIN_JSX, AGENT)
-    for e in bp.entities:
-        project.write(f"frontend/src/pages/{page_component_name(e.plural_label)}.jsx", render_entity_page(e), AGENT)
+    for module in bp.modules:
+        if module.kind == "reports":
+            project.write("frontend/src/pages/ReportsPage.jsx", REPORTS_JSX, AGENT)
+        else:
+            project.write(f"frontend/src/pages/{module_component_name(module)}.jsx", render_module_page(module), AGENT)
     return project.files_by_agent(AGENT)

@@ -2,10 +2,12 @@
 
 import json
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from backend.codegen.blueprint import BEntity, BField, Blueprint
 from backend.codegen.project_files import GeneratedProject
+from backend.codegen.spec_runtime import RULES_PY, entity_rule_config, py_literal, render_dashboard_router as render_metrics_router
+from backend.codegen.spec_runtime import render_reports_router
 
 AGENT = "backend"
 
@@ -13,7 +15,10 @@ DELEGATED_PREFIXES = ("/api/auth", "/api/users")  # implemented by the Authentic
 
 
 def endpoint_roles(bp: Blueprint, entity: BEntity, action: str) -> List[str]:
-    """Which roles may perform an action, derived from the entity's access policy."""
+    """Which roles may perform an action: the specification's role permissions (derived from the prompt's role
+    descriptions) or, for legacy specifications, the entity's access policy."""
+    if bp.permissions:
+        return [role for role in bp.roles if bp.can(role, entity.name, action)]
     everyone = list(bp.roles)
     admins = list(bp.admin_roles)
     if entity.access == "admin_managed":
@@ -112,6 +117,17 @@ def build_api_spec(bp: Blueprint) -> Dict:
                  {"name": "message", "type": "str", "required": True, "default": None, "validation_rules": {}}]},
              "parameters": id_param, "business_logic_summary": "Load visible record and delete it."},
         ]
+        rule_cfg = entity_rule_config(bp, e)
+        for action, t in rule_cfg["transitions"].items():
+            endpoints.append({
+                **common, "path": f"{e.api_path}/{{item_id}}/actions/{action}", "method": "POST",
+                "summary": f"{t['label']} a {e.label.lower()}",
+                "description": f"Workflow step: {', '.join(t['from']) or 'any state'} -> {t['to']}.",
+                "operation_id": f"{action}_{e.snake}", "required_roles": endpoint_roles(bp, e, "update"),
+                "required_permission": e.permission("update"), "request_schema": None, "response_schema": out_schema,
+                "parameters": id_param, "business_logic_summary": f"Check the current state, set {rule_cfg['workflow_field']} "
+                                                                  f"to {t['to']} and apply the business rules.",
+            })
         services.append({"name": f"{e.name}Service", "entity": e.name, "methods": [
             {"name": f"list_{e.plural_snake}", "params": ["q", "filters", "sort", "skip", "limit", "user"], "return_type": f"{e.name}Page",
              "description": "Search/filter/paginate with row-level scope"},
@@ -122,6 +138,25 @@ def build_api_spec(bp: Blueprint) -> Dict:
              "return_type": f"List[{e.name}]"},
         ]})
 
+    endpoints.append({
+        "path": "/api/dashboard/metrics", "method": "GET", "summary": "Dashboard metrics from the specification",
+        "description": "; ".join(m["label"] for m in bp.metrics)[:500], "operation_id": "dashboard_metrics",
+        "tags": ["Dashboard"], "requires_auth": True, "required_roles": list(bp.roles), "required_permission": "dashboard:read",
+        "row_level_scope": "owner", "request_schema": None,
+        "response_schema": {"name": "DashboardMetrics", "status_code": 200, "fields": []}, "parameters": [],
+        "business_logic_summary": "Evaluate every dashboard metric of the specification on live records.", "is_file_upload": False,
+    })
+    if bp.has_reports:
+        endpoints.append({
+            "path": "/api/reports", "method": "GET", "summary": "Reports with date filters",
+            "description": "Per-module counts, status breakdowns, monthly trends and money totals.", "operation_id": "reports",
+            "tags": ["Reports"], "requires_auth": True, "required_roles": list(bp.roles), "required_permission": "reports:read",
+            "row_level_scope": "owner", "request_schema": None,
+            "response_schema": {"name": "Reports", "status_code": 200, "fields": []},
+            "parameters": [{"name": "date_from", "in_location": "query", "param_type": "date", "required": False, "default": None, "description": "From"},
+                           {"name": "date_to", "in_location": "query", "param_type": "date", "required": False, "default": None, "description": "To"}],
+            "business_logic_summary": "Aggregate records by date range.", "is_file_upload": False,
+        })
     endpoints.append({
         "path": "/api/dashboard/summary", "method": "GET", "summary": "Dashboard summary for the signed-in user",
         "description": "Record counts per entity visible to the caller.", "operation_id": "dashboard_summary",
@@ -222,6 +257,8 @@ def _constraints(f: BField) -> str:
         parts.append("max_length=20000")
     if f.kind == "email":
         parts.append("pattern=EMAIL_PATTERN")
+    if f.kind == "time":
+        parts.append("pattern=TIME_PATTERN")
     if f.is_numeric and f.min_value is not None:
         parts.append(f"ge={f.min_value if f.kind != 'integer' else int(f.min_value)}")
     if f.is_numeric and f.max_value is not None:
@@ -246,6 +283,7 @@ def render_schemas(bp: Blueprint) -> str:
         "from pydantic import BaseModel, ConfigDict, Field",
         "",
         r'EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"',
+        r'TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"',
         "",
         "",
         "class MessageResponse(BaseModel):",
@@ -274,8 +312,11 @@ def render_schemas(bp: Blueprint) -> str:
 
 
 def render_entity_router(bp: Blueprint, e: BEntity) -> str:
+    cfg = entity_rule_config(bp, e)
     ref_models = sorted({f.references for f in e.reference_fields})
-    model_imports = sorted({e.name, "User", *ref_models})
+    resource_models = sorted({a["resource"] for a in cfg["allocations"]})
+    model_imports = sorted({e.name, "User", *ref_models, *resource_models})
+    snapshot_fields = [f.name for f in e.response_fields]
     search_cols = ", ".join(f"{e.name}.{f.name}" for f in e.searchable_fields)
     sortable = [f for f in e.response_fields if f.kind not in ("text",)]
     sort_map = ", ".join(f'"{f.name}": {e.name}.{f.name}' for f in sortable)
@@ -308,9 +349,20 @@ def render_entity_router(bp: Blueprint, e: BEntity) -> str:
         "from app.database import get_db",
         f"from app.models import {', '.join(model_imports)}",
         f"from app.schemas import MessageResponse, {e.name}Create, {e.name}Out, {e.name}Page, {e.name}Update",
+        "from app.rules import apply_allocations, apply_computed, check_date_order, check_unique_together, snapshot, stamp_transition_dates",
         "from app.security import is_admin, require_permission",
         "",
         f'router = APIRouter(prefix="{e.api_path}", tags=["{e.plural_label}"])',
+        "",
+        "# Business rules and workflow from the application specification",
+        f"DATE_ORDER = {py_literal(cfg['date_order'])}",
+        f"COMPUTED = {py_literal(cfg['computed'])}",
+        f"UNIQUE_TOGETHER = {py_literal(cfg['unique'])}",
+        f"ALLOCATIONS = {py_literal(cfg['allocations'])}",
+        f"RESOURCE_MODELS = {{{', '.join(f'{chr(34)}{m}{chr(34)}: {m}' for m in resource_models)}}}",
+        f"WORKFLOW_FIELD = {json.dumps(cfg['workflow_field'])}",
+        f"TRANSITIONS = {py_literal(cfg['transitions'])}",
+        f"SNAPSHOT_FIELDS = {json.dumps(snapshot_fields)}",
         "",
         f"OWNER_SCOPED = {e.owner_scoped}",
         f"SEARCH_COLUMNS = ({search_cols}{',' if search_cols and ',' not in search_cols else ''})" if search_cols else "SEARCH_COLUMNS = ()",
@@ -340,6 +392,13 @@ def render_entity_router(bp: Blueprint, e: BEntity) -> str:
         "        target = db.get(model, value)",
         "        if target is None or (scoped and not is_admin(user) and getattr(target, \"owner_id\", None) != user.id):",
         '            raise HTTPException(status_code=422, detail=f"{field}: {model.__name__} {value} does not exist")',
+        "",
+        "",
+        f"def _enforce(db: Session, obj: {e.name}, before) -> None:",
+        "    apply_computed(obj, COMPUTED)",
+        "    check_date_order(obj, DATE_ORDER)",
+        f"    check_unique_together(db, {e.name}, obj, UNIQUE_TOGETHER)",
+        "    apply_allocations(db, before, snapshot(obj, SNAPSHOT_FIELDS), ALLOCATIONS, RESOURCE_MODELS)",
         "",
         "",
         "def _commit(db: Session) -> None:",
@@ -389,6 +448,7 @@ def render_entity_router(bp: Blueprint, e: BEntity) -> str:
         "    data = payload.model_dump()",
         "    _check_references(db, data, user)",
         f"    obj = {e.name}(**data)",
+        "    _enforce(db, obj, None)",
     ]
     if e.owner_scoped:
         lines.append("    obj.owner_id = user.id")
@@ -408,6 +468,7 @@ def render_entity_router(bp: Blueprint, e: BEntity) -> str:
         f'    user: User = Depends(require_permission("{perm("update")}")),',
         "):",
         "    obj = _get_visible(db, item_id, user)",
+        "    before = snapshot(obj, SNAPSHOT_FIELDS)",
         "    data = payload.model_dump(exclude_unset=True)",
         "    for field in REQUIRED_FIELDS:",
         "        if field in data and data[field] is None:",
@@ -415,6 +476,7 @@ def render_entity_router(bp: Blueprint, e: BEntity) -> str:
         "    _check_references(db, data, user)",
         "    for field, value in data.items():",
         "        setattr(obj, field, value)",
+        "    _enforce(db, obj, before)",
         "    _commit(db)",
         "    db.refresh(obj)",
         "    return obj",
@@ -423,95 +485,45 @@ def render_entity_router(bp: Blueprint, e: BEntity) -> str:
         f'@router.delete("/{{item_id}}", response_model=MessageResponse, summary="Delete a {e.label.lower()}")',
         f'def delete_{e.snake}(item_id: int, db: Session = Depends(get_db), user: User = Depends(require_permission("{perm("delete")}"))):',
         "    obj = _get_visible(db, item_id, user)",
+        "    apply_allocations(db, snapshot(obj, SNAPSHOT_FIELDS), None, ALLOCATIONS, RESOURCE_MODELS)",
         "    db.delete(obj)",
         "    _commit(db)",
         f'    return MessageResponse(message=f"{e.label} {{item_id}} deleted")',
         "",
     ]
+    if cfg["transitions"]:
+        lines += [
+            "",
+            f'@router.post("/{{item_id}}/actions/{{action}}", response_model={e.name}Out, summary="Run a workflow action")',
+            f"def run_{e.snake}_action(",
+            "    item_id: int,",
+            "    action: str,",
+            "    db: Session = Depends(get_db),",
+            f'    user: User = Depends(require_permission("{perm("update")}")),',
+            "):",
+            "    transition = TRANSITIONS.get(action)",
+            "    if transition is None:",
+            "        raise HTTPException(status_code=404, detail=f\"Unknown action '{action}'\")",
+            "    obj = _get_visible(db, item_id, user)",
+            "    current = getattr(obj, WORKFLOW_FIELD)",
+            '    if transition["from"] and current not in transition["from"]:',
+            "        state = str(current).replace('_', ' ')",
+            "        verb = transition['label'].lower()",
+            f'        raise HTTPException(status_code=409, detail=f"Cannot {{verb}} this {e.label.lower()} because it is {{state}}.")',
+            "    before = snapshot(obj, SNAPSHOT_FIELDS)",
+            '    setattr(obj, WORKFLOW_FIELD, transition["to"])',
+            '    stamp_transition_dates(obj, transition["dates"])',
+            "    _enforce(db, obj, before)",
+            "    _commit(db)",
+            "    db.refresh(obj)",
+            "    return obj",
+            "",
+        ]
     return "\n".join(lines)
 
 
-def render_dashboard_router(bp: Blueprint) -> str:
-    imports = ", ".join(sorted({"User", *[e.name for e in bp.entities]}))
-    entries = "\n".join(
-        f'    ("{e.name}", "{e.plural_label}", "{e.ui_path}", {e.name}, {e.owner_scoped}),' for e in bp.entities
-    )
-    enum_breakdowns = []
-    for e in bp.entities:
-        for f in e.enum_fields:
-            enum_breakdowns.append(f'    ("{e.plural_label}", "{f.label}", {e.name}, {e.name}.{f.name}),')
-    primary = bp.primary_entity
-    return f'''"""Dashboard and admin statistics (generated by FORGE AI Backend Agent)."""
-
-from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-
-from app.database import get_db
-from app.models import {imports}
-from app.security import is_admin, require_permission
-
-router = APIRouter(tags=["Dashboard"])
-
-ENTITIES = [
-{entries}
-]
-
-BREAKDOWNS = [
-{chr(10).join(enum_breakdowns)}
-]
-
-
-def _count(db: Session, model, scoped: bool, user: User) -> int:
-    stmt = select(func.count()).select_from(model)
-    if scoped and not is_admin(user):
-        stmt = stmt.where(model.owner_id == user.id)
-    return db.scalar(stmt) or 0
-
-
-@router.get("/api/dashboard/summary", summary="Record counts visible to the signed-in user")
-def dashboard_summary(db: Session = Depends(get_db), user: User = Depends(require_permission("dashboard:read"))):
-    return {{
-        "role": user.role,
-        "counts": {{name: _count(db, model, scoped, user) for name, _label, _path, model, scoped in ENTITIES}},
-        "entities": [
-            {{"name": name, "label": label, "path": path, "count": _count(db, model, scoped, user)}}
-            for name, label, path, model, scoped in ENTITIES
-        ],
-    }}
-
-
-@router.get("/api/admin/stats", summary="Administrator statistics", tags=["Admin"])
-def admin_stats(db: Session = Depends(get_db), user: User = Depends(require_permission("admin:dashboard"))):
-    users_by_role = dict(db.execute(select(User.role, func.count()).group_by(User.role)).all())
-    breakdowns = []
-    for entity_label, field_label, model, column in BREAKDOWNS:
-        rows = db.execute(select(column, func.count()).select_from(model).group_by(column)).all()
-        breakdowns.append({{"entity": entity_label, "field": field_label,
-                           "counts": {{str(value): count for value, count in rows}}}})
-    recent = db.scalars(select({primary.name}).order_by({primary.name}.created_at.desc(), {primary.name}.id.desc()).limit(5)).all()
-    return {{
-        "totals": {{
-            "users": db.scalar(select(func.count()).select_from(User)) or 0,
-            **{{name: db.scalar(select(func.count()).select_from(model)) or 0 for name, _l, _p, model, _s in ENTITIES}},
-        }},
-        "entities": [
-            {{"name": name, "label": label, "path": path, "count": db.scalar(select(func.count()).select_from(model)) or 0}}
-            for name, label, path, model, _s in ENTITIES
-        ],
-        "users_by_role": users_by_role,
-        "breakdowns": breakdowns,
-        "recent": {{
-            "entity": "{primary.plural_label}",
-            "items": [{{"id": r.id, "label": str(getattr(r, "{primary.display_field}", r.id)),
-                       "created_at": r.created_at.isoformat() if r.created_at else None}} for r in recent],
-        }},
-    }}
-'''
-
-
 def render_main(bp: Blueprint) -> str:
-    router_modules = ["auth", "users", "dashboard"] + [f"{e.plural_snake}" for e in bp.entities]
+    router_modules = ["auth", "users", "dashboard"] + (["reports"] if bp.has_reports else []) + [f"{e.plural_snake}" for e in bp.entities]
     imports = ", ".join(router_modules)
     includes = "\n".join(f"app.include_router({m}.router)" for m in router_modules)
     return f'''"""{bp.project_name} API (generated by FORGE AI Backend Agent).
@@ -532,6 +544,7 @@ from sqlalchemy import text
 from app.database import engine, init_db
 from app.routers import {imports}
 from app.seed import seed_admin
+from app.seed_data import seed_demo_data, seed_reference_data
 
 PROJECT_NAME = {json.dumps(bp.project_name)}
 
@@ -540,13 +553,15 @@ PROJECT_NAME = {json.dumps(bp.project_name)}
 async def lifespan(_app: FastAPI):
     init_db()
     seed_admin()
+    seed_reference_data()
+    seed_demo_data()
     yield
 
 
 app = FastAPI(
     title=PROJECT_NAME,
     version="1.0.0",
-    description={json.dumps(bp.description[:500])},
+    description={json.dumps((bp.purpose or bp.description)[:500])},
     lifespan=lifespan,
 )
 
@@ -606,7 +621,10 @@ def write_backend_files(bp: Blueprint, project: GeneratedProject) -> List[str]:
     project.write("backend/app/routers/__init__.py", '"""API routers."""\n', AGENT)
     project.write("backend/app/schemas.py", render_schemas(bp), AGENT)
     project.write("backend/app/main.py", render_main(bp), AGENT)
-    project.write("backend/app/routers/dashboard.py", render_dashboard_router(bp), AGENT)
+    project.write("backend/app/rules.py", RULES_PY, AGENT)
+    project.write("backend/app/routers/dashboard.py", render_metrics_router(bp), AGENT)
+    if bp.has_reports:
+        project.write("backend/app/routers/reports.py", render_reports_router(bp), AGENT)
     for e in bp.entities:
         project.write(f"backend/app/routers/{e.plural_snake}.py", render_entity_router(bp, e), AGENT)
     project.write("backend/requirements.txt", render_requirements(), AGENT)

@@ -16,7 +16,7 @@ from backend.schemas.pm_schema import PMOutput
 class BField:
     name: str
     label: str
-    kind: str  # string|text|integer|float|decimal|boolean|date|datetime|email|enum|reference
+    kind: str  # string|text|integer|float|decimal|boolean|date|datetime|time|email|enum|reference
     required: bool = False
     unique: bool = False
     enum_values: List[str] = field(default_factory=list)
@@ -40,7 +40,7 @@ class BField:
     @property
     def sa_type(self) -> str:
         return {
-            "string": "String(255)", "email": "String(255)", "text": "Text", "integer": "Integer",
+            "string": "String(255)", "email": "String(255)", "text": "Text", "integer": "Integer", "time": "String(5)",
             "reference": "Integer", "float": "Float", "decimal": "Numeric(12, 2, asdecimal=False)",
             "boolean": "Boolean", "date": "Date", "datetime": "DateTime(timezone=True)", "enum": "String(50)",
         }[self.kind]
@@ -48,7 +48,7 @@ class BField:
     @property
     def pg_type(self) -> str:
         return {
-            "string": "VARCHAR(255)", "email": "VARCHAR(255)", "text": "TEXT", "integer": "INTEGER",
+            "string": "VARCHAR(255)", "email": "VARCHAR(255)", "text": "TEXT", "integer": "INTEGER", "time": "VARCHAR(5)",
             "reference": "INTEGER", "float": "DOUBLE PRECISION", "decimal": "NUMERIC(12, 2)", "boolean": "BOOLEAN",
             "date": "DATE", "datetime": "TIMESTAMP WITH TIME ZONE", "enum": "VARCHAR(50)",
         }[self.kind]
@@ -57,7 +57,7 @@ class BField:
     def input_type(self) -> str:
         return {
             "string": "text", "email": "email", "text": "textarea", "integer": "number", "float": "number",
-            "decimal": "number", "boolean": "checkbox", "date": "date", "datetime": "datetime-local",
+            "decimal": "number", "boolean": "checkbox", "date": "date", "datetime": "datetime-local", "time": "time",
             "enum": "select", "reference": "reference",
         }[self.kind]
 
@@ -140,6 +140,18 @@ class BEntity:
 
 
 @dataclass
+class BModule:
+    """A navigation module from the specification (in the user's terminology)."""
+    key: str
+    name: str
+    label: str
+    kind: str          # entities | reports
+    entities: List[str]
+    path: str
+    description: str = ""
+
+
+@dataclass
 class Blueprint:
     project_name: str
     slug: str
@@ -152,6 +164,33 @@ class Blueprint:
     entities: List[BEntity]
     features: List[str]
     has_admin_dashboard: bool = True
+    # dynamic specification (spec_version 2) shared by every agent
+    purpose: str = ""
+    modules: List[BModule] = field(default_factory=list)
+    workflows: Dict[str, Dict] = field(default_factory=dict)          # entity -> WorkflowSpec dict
+    rules: List[Dict] = field(default_factory=list)                   # BusinessRule dicts
+    metrics: List[Dict] = field(default_factory=list)                 # DashboardMetric dicts
+    permissions: Dict[str, Dict[str, List[str]]] = field(default_factory=dict)  # role -> entity -> actions
+    theme: Dict[str, str] = field(default_factory=dict)
+    seed_records: Dict[str, List[Dict]] = field(default_factory=dict)
+    demo_data: bool = False
+    ambiguities: List[str] = field(default_factory=list)
+    unsupported: List[str] = field(default_factory=list)
+
+    def can(self, role: str, entity: str, action: str) -> bool:
+        if role in self.admin_roles:
+            return True
+        return action in self.permissions.get(role, {}).get(entity, [])
+
+    def rules_for(self, entity: str, kind: Optional[str] = None) -> List[Dict]:
+        return [r for r in self.rules if r.get("entity") == entity and (kind is None or r.get("kind") == kind)]
+
+    def module_of(self, entity: str) -> Optional[BModule]:
+        return next((m for m in self.modules if entity in m.entities), None)
+
+    @property
+    def has_reports(self) -> bool:
+        return any(m.kind == "reports" for m in self.modules)
 
     def entity(self, name: str) -> BEntity:
         if name == "User":
@@ -226,6 +265,10 @@ def build_blueprint(pm: PMOutput) -> Blueprint:
         from backend.agents.pm_analysis import normalize_requirements
 
         pm = normalize_requirements(pm)
+    if not pm.module_specs:  # legacy requirements (spec_version 1): derive the dynamic spec from the schema
+        from backend.agents.spec_finalize import finalize_spec
+
+        pm = finalize_spec(pm.model_copy(deep=True))
     user = None
     entities: List[BEntity] = []
     for e in pm.database_entities:
@@ -240,7 +283,14 @@ def build_blueprint(pm: PMOutput) -> Blueprint:
         raise ValueError("Requirements contain no application entities.")
     roles = [r.name for r in pm.user_roles] or ["admin", "user"]
     admin_roles = [r.name for r in pm.user_roles if r.is_admin] or ["admin"]
-    default_role = next((r for r in roles if r not in admin_roles), roles[-1])
+    names = {e.name for e in entities}
+    permissions = _permission_matrix(pm, roles, admin_roles, entities)
+    # self-registered accounts get the least-privileged non-admin role; admins assign the others
+    non_admin = [r for r in roles if r not in admin_roles]
+    default_role = min(non_admin, key=lambda r: (sum(len([a for a in acts if a != "read"])
+                                                     for acts in permissions.get(r, {}).values()),
+                                                 non_admin.index(r))) if non_admin else roles[-1]
+    modules = _modules(pm, entities)
     return Blueprint(
         project_name=pm.project_name,
         slug=slugify(pm.project_name),
@@ -253,7 +303,74 @@ def build_blueprint(pm: PMOutput) -> Blueprint:
         entities=entities,
         features=list(pm.features),
         has_admin_dashboard=pm.has_admin_dashboard,
+        purpose=pm.purpose or "",
+        modules=modules,
+        workflows={w.entity: w.model_dump() for w in pm.workflows if w.entity in names and w.transitions},
+        rules=[r.model_dump() for r in pm.business_rules if r.entity in names],
+        metrics=[m.model_dump() for m in pm.dashboard_metrics if m.kind != "ask" and (m.entity is None or m.entity in names)],
+        permissions=permissions,
+        theme=dict(pm.theme or {}),
+        seed_records={k: v for k, v in (pm.seed_records or {}).items() if k in names},
+        demo_data=bool(pm.demo_data),
+        ambiguities=list(pm.ambiguities),
+        unsupported=list(pm.unsupported_requests),
     )
+
+
+def _permission_matrix(pm: PMOutput, roles: List[str], admin_roles: List[str],
+                       entities: List[BEntity]) -> Dict[str, Dict[str, List[str]]]:
+    """role -> entity -> actions; from the spec when present, otherwise from each entity's access policy."""
+    matrix: Dict[str, Dict[str, List[str]]] = {r: {} for r in roles}
+    explicit = {(p.role, p.entity): sorted(set(p.actions)) for p in pm.role_permissions}
+    for role in roles:
+        for e in entities:
+            if role in admin_roles:
+                acts = ["create", "delete", "read", "update"]
+            elif (role, e.name) in explicit:
+                acts = explicit[(role, e.name)]
+            elif e.access == "admin_managed":
+                acts = ["read"]
+            elif e.access == "shared":
+                acts = ["create", "read", "update"]
+            else:
+                acts = ["create", "delete", "read", "update"]
+            if acts and "read" not in acts:
+                acts = sorted(set(acts) | {"read"})
+            matrix[role][e.name] = acts
+    return matrix
+
+
+def _modules(pm: PMOutput, entities: List[BEntity]) -> List[BModule]:
+    names = [e.name for e in entities]
+    modules: List[BModule] = []
+    used_paths = {"admin", "login", "register", "reports", ""}
+    covered = set()
+    for m in pm.module_specs:
+        if m.kind == "reports":
+            continue
+        ents = [e for e in m.entities if e in names and e not in covered]
+        if not ents:
+            continue
+        covered.update(ents)
+        path = slugify(m.label or m.name or ents[0]) or slugify(ents[0])
+        base, n = path, 2
+        while path in used_paths:
+            path, n = f"{base}-{n}", n + 1
+        used_paths.add(path)
+        modules.append(BModule(key=m.key, name=m.name, label=m.label or m.name, kind="entities", entities=ents,
+                               path=f"/{path}", description=m.description))
+    for e in entities:  # every entity is reachable from navigation
+        if e.name not in covered:
+            path = slugify(e.plural_label)
+            while path in used_paths:
+                path += "-x"
+            used_paths.add(path)
+            modules.append(BModule(key=e.snake, name=e.plural_label.capitalize(), label=e.plural_label.capitalize(),
+                                   kind="entities", entities=[e.name], path=f"/{path}"))
+    if any(m.kind == "reports" for m in pm.module_specs):
+        modules.append(BModule(key="reports", name="Reports", label="Reports", kind="reports", entities=[],
+                               path="/reports", description="Counts, status breakdowns and monthly trends"))
+    return modules
 
 
 def entity_ui_config(entity: BEntity, blueprint: Blueprint) -> Dict:

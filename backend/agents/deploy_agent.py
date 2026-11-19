@@ -151,10 +151,27 @@ class DeployAgent(BaseAgent[DeployOutput]):
             status, text = probe("POST /api/auth/login (seeded admin)", "/api/auth/login", 200, "POST",
                                  {"email": "healthcheck-admin@example.com", "password": admin_password})
             token = json.loads(text).get("access_token") if status == 200 else None
+            bp = build_blueprint(self.pm_data)
+            status, text = probe("GET /api (application identity)", "/api", 200)
+            if status == 200 and json.loads(text).get("name") != bp.project_name:
+                results[-1]["status"] = "unhealthy"
+                results[-1]["message"] = f"Served app is '{json.loads(text).get('name')}', expected '{bp.project_name}'"
             if token:
                 probe("GET /api/admin/stats (admin token)", "/api/admin/stats", 200, token=token)
-                first = build_blueprint(self.pm_data).entities[0]
-                probe(f"GET {first.api_path} (admin token)", first.api_path, 200, token=token)
+                status, text = probe("GET /api/dashboard/metrics (specified dashboard)", "/api/dashboard/metrics", 200,
+                                     token=token)
+                if status == 200:
+                    served = [m.get("id") for m in json.loads(text).get("metrics", [])]
+                    if served != [m["id"] for m in bp.metrics]:
+                        results[-1]["status"] = "unhealthy"
+                        results[-1]["message"] = "Dashboard metrics differ from the specification"
+                for module in bp.modules:  # every requested module answers on the live server
+                    if module.kind == "reports":
+                        probe("GET /api/reports (Reports module)", "/api/reports", 200, token=token)
+                        continue
+                    for name in module.entities:
+                        entity = bp.entity(name)
+                        probe(f"GET {entity.api_path} ({module.label})", entity.api_path, 200, token=token)
             if (root / "frontend" / "dist" / "index.html").is_file():
                 status, text = probe("GET / (frontend bundle)", "/", 200)
                 if status == 200 and "<div id=\"root\">" not in text:

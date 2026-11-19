@@ -23,9 +23,11 @@ def _sample_value(f: BField, n: int):
     if f.kind == "boolean":
         return True
     if f.kind == "date":
-        return "2026-01-15"
+        return "2025-06-15"
     if f.kind == "datetime":
-        return "2026-01-15T10:30:00"
+        return "2025-06-15T10:30:00"
+    if f.kind == "time":
+        return "10:30"
     if f.kind == "email":
         return f"qa{n}@example.com"
     if f.kind in ("integer",):
@@ -41,7 +43,10 @@ def _sample_value(f: BField, n: int):
     return f"QA {f.label} {n}"
 
 
-def _creator(e: BEntity) -> str:
+def _creator(e: BEntity, bp: Blueprint = None) -> str:
+    """Headers of a caller allowed to create the entity: the self-registered role when it may, else an admin."""
+    if bp is not None and bp.permissions:
+        return "user_headers" if bp.can(bp.default_role, e.name, "create") else "admin_headers"
     return "admin_headers" if e.access == "admin_managed" else "user_headers"
 
 
@@ -60,6 +65,8 @@ os.environ["ADMIN_EMAIL"] = "{QA_ADMIN_EMAIL}"
 os.environ["ADMIN_PASSWORD"] = "{QA_PASSWORD}"
 os.environ["PASSWORD_HASH_ITERATIONS"] = "1000"
 os.environ["FRONTEND_DIST"] = str(Path(_TMP) / "no-frontend")
+os.environ["SEED_DATA"] = "0"       # tests start from an empty database
+os.environ["SEED_DEMO_DATA"] = "0"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest  # noqa: E402
@@ -97,6 +104,26 @@ def user_headers(client):
 @pytest.fixture(scope="session")
 def other_headers(client):
     return register(client, "bob@qa.test", "Bob QA")
+
+
+@pytest.fixture(scope="session")
+def role_headers(client, admin_headers):
+    """Headers of a user holding a given role (registered, then promoted by the administrator)."""
+    cache = {{}}
+
+    def factory(role):
+        if role not in cache:
+            response = client.post("/api/auth/register", json={{"email": f"{{role}}@qa.test", "full_name": f"QA {{role}}",
+                                                               "password": PASSWORD}})
+            assert response.status_code == 201, response.text
+            user_id = response.json()["user"]["id"]
+            changed = client.put(f"/api/users/{{user_id}}", json={{"role": role}}, headers=admin_headers)
+            assert changed.status_code == 200, changed.text
+            login = client.post("/api/auth/login", json={{"email": f"{{role}}@qa.test", "password": PASSWORD}})
+            cache[role] = {{"Authorization": "Bearer " + login.json()["access_token"]}}
+        return cache[role]
+
+    return factory
 '''
 
 
@@ -109,6 +136,10 @@ def render_factories(bp: Blueprint) -> str:
         "_counter = itertools.count(1)",
         "",
     ]
+    available = {}
+    for rule in bp.rules:
+        if rule.get("kind") == "allocation" and (rule.get("params") or {}).get("resource"):
+            available[rule["params"]["resource"]] = rule["params"].get("available")
     for e in bp.entities:
         lines.append("")
         lines.append(f"def make_{e.snake}(client, headers, admin_headers, **overrides):")
@@ -118,6 +149,8 @@ def render_factories(bp: Blueprint) -> str:
             if f.kind == "reference":
                 continue
             value = _sample_value(f, 0)
+            if f.name == "status" and available.get(e.name) in f.enum_values:
+                value = available[e.name]  # allocatable resources start available
             if f.unique and f.kind in ("string", "email"):
                 expr = f'f"qa{{n}}@example.com"' if f.kind == "email" else f'f"{_sample_value(f, 0)}-{{n}}"'
             elif f.kind in ("string",):
@@ -140,7 +173,7 @@ def render_factories(bp: Blueprint) -> str:
 
 
 def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
-    creator = _creator(e)
+    creator = _creator(e, bp)
     fixture_args = creator if creator == "admin_headers" else f"{creator}, admin_headers"
     path = e.api_path
     mk = f"make_{e.snake}"
@@ -242,17 +275,7 @@ def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
             "",
         ]
         break
-    if e.access == "admin_managed":
-        lines += [
-            "",
-            "def test_regular_users_can_read_but_not_write(client, user_headers, admin_headers):",
-            f"    created = {mk}(client, admin_headers, admin_headers)",
-            f'    assert client.get(f"{path}/{{created[\'id\']}}", headers=user_headers).status_code == 200',
-            f'    assert client.post("{path}", json={{}}, headers=user_headers).status_code == 403',
-            f'    assert client.delete(f"{path}/{{created[\'id\']}}", headers=user_headers).status_code == 403',
-            "",
-        ]
-    elif e.access == "owner":
+    if e.access == "owner" and creator == "user_headers":
         lines += [
             "",
             "def test_records_are_private_to_their_owner(client, user_headers, other_headers, admin_headers):",
@@ -264,16 +287,15 @@ def render_entity_tests(bp: Blueprint, e: BEntity) -> str:
             f'    assert client.get(f"{path}/{{created[\'id\']}}", headers=admin_headers).status_code == 200',
             "",
         ]
-    else:
+    elif e.access != "owner":
         lines += [
             "",
-            "def test_shared_records_visible_but_only_admins_delete(client, user_headers, other_headers, admin_headers):",
-            f"    created = {mk}(client, user_headers, admin_headers)",
+            "def test_records_are_visible_to_other_users(client, user_headers, other_headers, admin_headers):",
+            f"    created = {mk}(client, {creator}, admin_headers)",
             f'    assert client.get(f"{path}/{{created[\'id\']}}", headers=other_headers).status_code == 200',
-            f'    assert client.delete(f"{path}/{{created[\'id\']}}", headers=user_headers).status_code == 403',
             "",
         ]
-    deleter = "admin_headers" if e.access != "owner" else creator
+    deleter = creator if (e.access == "owner" and bp.can(bp.default_role, e.name, "delete")) else "admin_headers"
     lines += [
         "",
         f"def test_delete(client, {fixture_args}):",
@@ -371,5 +393,8 @@ def write_test_files(bp: Blueprint, project: GeneratedProject) -> List[str]:
     project.write("backend/tests/test_admin.py", render_admin_tests(bp), AGENT)
     for e in bp.entities:
         project.write(f"backend/tests/test_{e.plural_snake}.py", render_entity_tests(bp, e), AGENT)
+    from backend.codegen.qa_spec_tests import write_spec_tests
+
+    write_spec_tests(bp, project, AGENT)
     project.write("backend/pytest.ini", "[pytest]\ntestpaths = tests\npythonpath = tests .\n", AGENT)
     return project.files_by_agent(AGENT)

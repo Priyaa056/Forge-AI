@@ -4,7 +4,7 @@ Combines the structured error model from feature/qa-deploy (QAError, severity/ag
 with per-check and per-test results produced by actually executing the generated application's tests.
 """
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -104,3 +104,10 @@ class QAOutput(BaseModel):
     generated_test_files: List[str] = Field(default_factory=list)
     summary: Optional[str] = Field(default=None, description="QA report summary")
     repair_recommendation: Optional[str] = Field(default=None, description="Responsible agent and action from the self-healing manager")
+    requirement_coverage: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Every specification item (module, entity, field, role, permission, workflow, rule, metric, seed) "
+                    "with the generated evidence that implements it: covered | missing | unsupported")
+    correction_tasks: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Targeted correction tasks for the agents responsible for missing requirements")
+    unsupported_requests: List[str] = Field(default_factory=list, description="Requested capabilities the generator cannot provide")

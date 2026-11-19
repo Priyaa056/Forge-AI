@@ -5,12 +5,12 @@ tech_stack, database_entities); the additional fields carry the structured requi
 downstream agents consume.
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 FIELD_TYPES = [
-    "string", "text", "integer", "float", "decimal", "boolean", "date", "datetime", "email", "enum", "reference",
+    "string", "text", "integer", "float", "decimal", "boolean", "date", "datetime", "time", "email", "enum", "reference",
 ]
 
 
@@ -75,6 +75,69 @@ class DevelopmentTask(BaseModel):
     depends_on: List[str] = Field(default_factory=list)
 
 
+class ModuleSpec(BaseModel):
+    """A module the user asked for, as it appears in navigation."""
+    key: str = Field(..., description="snake_case identifier")
+    name: str = Field(..., description="Name in the user's terminology e.g. 'Admission and Bed Management'")
+    label: str = Field(..., description="Short navigation label e.g. 'Admissions & Beds'")
+    kind: str = Field(default="entities", description="entities | dashboard | reports")
+    entities: List[str] = Field(default_factory=list, description="Entities managed on this module's page")
+    description: str = ""
+    source: str = Field(default="", description="Prompt text this module was derived from")
+
+
+class WorkflowTransition(BaseModel):
+    action: str = Field(..., description="snake_case action e.g. discharge")
+    label: str = Field(..., description="Button label e.g. 'Discharge'")
+    from_states: List[str] = Field(default_factory=list)
+    to_state: str
+
+
+class WorkflowSpec(BaseModel):
+    entity: str
+    field: str = "status"
+    states: List[str]
+    initial: str
+    terminal: List[str] = Field(default_factory=list)
+    transitions: List[WorkflowTransition] = Field(default_factory=list)
+    source: str = ""
+
+
+class BusinessRule(BaseModel):
+    id: str
+    kind: str = Field(..., description="unique_together | date_order | allocation | computed | low_stock | expiry | overdue")
+    entity: str
+    fields: List[str] = Field(default_factory=list)
+    params: Dict[str, Any] = Field(default_factory=dict)
+    description: str = ""
+    source: str = ""
+
+
+class DashboardMetric(BaseModel):
+    id: str
+    label: str
+    kind: str = Field(..., description="count | count_where | count_today | upcoming | sum | sum_month | average | alert | breakdown | trend | recent")
+    entity: Optional[str] = None
+    field: Optional[str] = None
+    value: Optional[str] = None
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RolePermission(BaseModel):
+    role: str
+    entity: str
+    actions: List[str] = Field(default_factory=list, description="read | create | update | delete")
+
+
+class TraceItem(BaseModel):
+    """Traceability from a prompt requirement to the specification items that implement it."""
+    id: str
+    text: str
+    kind: str = Field(..., description="module | entity | field | role | workflow | rule | metric | page | feature")
+    targets: List[str] = Field(default_factory=list)
+    status: str = Field(default="mapped", description="mapped | unsupported")
+
+
 class PMOutput(BaseModel):
     """PM Agent JSON output schema (requirements.json)."""
     project_name: str = Field(..., description="Project name")
@@ -95,3 +158,19 @@ class PMOutput(BaseModel):
     source_prompt: str = Field(default="", description="The user prompt these requirements were derived from")
     generation_mode: str = Field(default="deterministic", description="'llm' or 'deterministic'")
     assumptions: List[str] = Field(default_factory=list, description="Assumptions made while interpreting the prompt")
+
+    # Dynamic application specification (derived from the prompt; consumed by every agent)
+    purpose: str = Field(default="", description="One-sentence purpose of the application")
+    target_users: List[str] = Field(default_factory=list)
+    module_specs: List[ModuleSpec] = Field(default_factory=list, description="Modules/pages in prompt order")
+    workflows: List[WorkflowSpec] = Field(default_factory=list)
+    business_rules: List[BusinessRule] = Field(default_factory=list)
+    dashboard_metrics: List[DashboardMetric] = Field(default_factory=list)
+    role_permissions: List[RolePermission] = Field(default_factory=list)
+    ambiguities: List[str] = Field(default_factory=list, description="Missing or ambiguous requirements and how they were resolved")
+    unsupported_requests: List[str] = Field(default_factory=list, description="Requested capabilities FORGE AI cannot generate")
+    theme: Dict[str, str] = Field(default_factory=dict, description="primary_color, sidebar_color, style notes")
+    seed_records: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict, description="Records the prompt explicitly listed")
+    demo_data: bool = Field(default=False, description="The prompt asked for sample/demo data")
+    requirement_trace: List[TraceItem] = Field(default_factory=list)
+    spec_version: int = Field(default=2)

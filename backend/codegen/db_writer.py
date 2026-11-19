@@ -6,6 +6,7 @@ from typing import Dict, List, Tuple
 
 from backend.codegen.blueprint import BEntity, BField, Blueprint
 from backend.codegen.project_files import GeneratedProject
+from backend.codegen.spec_runtime import entity_rule_config, render_seed_data
 
 AGENT = "db"
 
@@ -294,6 +295,8 @@ def write_db_files(bp: Blueprint, project: GeneratedProject) -> List[str]:
     up_sql, down_sql = render_migration_sql(bp)
     project.write("backend/app/database.py", render_database_module(), AGENT)
     project.write("backend/app/models.py", render_models(bp), AGENT)
+    allocations = {e.name: entity_rule_config(bp, e)["allocations"] for e in bp.entities}
+    project.write("backend/app/seed_data.py", render_seed_data(bp, {k: v for k, v in allocations.items() if v}), AGENT)
     project.write("backend/migrations/001_initial_schema.sql", up_sql, AGENT)
     project.write("backend/migrations/001_initial_schema.down.sql", down_sql, AGENT)
     project.write("backend/migrations/README.md", (
