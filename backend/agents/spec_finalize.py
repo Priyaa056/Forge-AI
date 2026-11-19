@@ -170,6 +170,12 @@ def _resolve_rules(pm: PMOutput) -> List[BusinessRule]:
              ("borrowed", "due"), ("check_in", "check_out"), ("departure", "arrival"), ("start_time", "end_time"),
              ("shipped", "delivered"), ("issued", "due"), ("fill", "next")]
     for e in ents.values():
+        due = next((f for f in e.fields if f.name in ("due_date", "due_on") and f.type in DATE_KINDS), None)
+        start = next((f for f in e.fields if f.type == (due.type if due else None) and f is not due
+                      and f.name != "created_at" and not f.name.startswith(("return", "end", "expir", "next"))), None)
+        if due and start:  # "loan date ... due date": the due date cannot precede the start
+            add(BusinessRule(id="", kind="date_order", entity=e.name, fields=[start.name, due.name],
+                             description=f"{humanize(due.name).capitalize()} cannot be before {humanize(start.name).lower()}"))
         dates = [f for f in e.fields if f.type in DATE_KINDS | {"time"} and f.name != "created_at"]
         for a, b in pairs:
             fa = next((f for f in dates if f.name.startswith(a)), None)
@@ -230,9 +236,10 @@ def _metrics(pm: PMOutput) -> List[DashboardMetric]:
 
     def add(m: DashboardMetric):
         key = (m.kind, m.entity, m.field, m.value)
-        if key in used:
-            return
+        if key in used or m.label.lower() in used:
+            return  # e.g. the prompt's "overdue loans" already covers the default overdue alert
         used.add(key)
+        used.add(m.label.lower())
         m.id = f"m{len(metrics) + 1}"
         metrics.append(m)
 

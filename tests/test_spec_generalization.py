@@ -298,3 +298,25 @@ def test_concurrent_generations_are_isolated(tmp_path):
     assert "class Vehicle(Base)" in fleet_models and "class Hive(Base)" not in fleet_models
     assert "class Hive(Base)" in bee_models and "class Vehicle(Base)" not in bee_models
     assert states["fleet"].agent_outputs["pm"]["project_name"] != states["beekeeping"].agent_outputs["pm"]["project_name"]
+
+
+def test_structured_library_prompt():
+    pm = analyze_prompt((DATA / "library_prompt.txt").read_text(encoding="utf-8"))
+    assert pm.project_name == "BookNest"
+    assert [m.label for m in pm.module_specs] == ["Book catalog", "Members", "Loans", "Fines", "Reports"]
+    assert {r.name for r in pm.user_roles} == {"admin", "librarian", "member"}  # "Dashboard:" is not a role
+    perms = {(p.role, p.entity): p.actions for p in pm.role_permissions}
+    assert perms[("member", "Book")] == ["read"]  # "Member: View books."
+    assert "create" in perms[("librarian", "Loan")]
+    assert field_map(pm, "Book")["copies"].type == "integer"  # "number of copies"
+    assert field_map(pm, "Book")["status"].enum_values == ["available", "borrowed", "lost"]
+    loan_dates = [n for n, f in field_map(pm, "Loan").items() if f.type == "date"]
+    assert loan_dates == ["loan_date", "due_date"]  # no duplicated typical dates
+    rules = {(r.kind, r.entity, tuple(r.fields)) for r in pm.business_rules}
+    assert ("unique_together", "Loan", ("member_id", "book_id")) in rules
+    assert ("date_order", "Loan", ("loan_date", "due_date")) in rules
+    assert ("allocation", "Loan", ("book_id",)) in rules
+    assert {f.references for f in field_map(pm, "Fine").values() if f.references} == {"Loan", "Member"}
+    labels = [m.label for m in pm.dashboard_metrics]
+    assert len(labels) == len(set(labels)) and {"Total books", "Borrowed books", "Overdue loans"} <= set(labels)
+    assert pm.theme == {"sidebar_color": "#0c5928"}  # dark green sidebar, default accent

@@ -84,7 +84,7 @@ STATE_ADJECTIVES = {"upcoming", "available", "pending", "active", "current", "re
                     "admitted", "assigned", "occupied", "overdue", "expired", "completed", "cancelled", "canceled",
                     "open", "closed", "inactive", "featured", "popular", "latest", "selected", "registered",
                     "scheduled", "unpaid", "paid", "outstanding", "archived", "approved", "rejected"}
-EVENT_HEADS = {"visit", "reading", "check", "checkup", "inspection", "report", "log", "record", "request", "entry",
+EVENT_HEADS = {"fine", "penalty", "donation", "expense", "claim", "refund", "visit", "reading", "check", "checkup", "inspection", "report", "log", "record", "request", "entry",
                "harvest", "sale", "payment", "assessment", "evaluation", "observation", "measurement", "treatment",
                "session", "transaction", "incident", "admission", "booking", "reservation", "delivery", "trip",
                "submission", "attendance", "appointment", "order", "loan", "rental", "shipment", "survey", "audit"}
@@ -301,10 +301,18 @@ def _parse_blocks(text: str) -> List[Block]:
                 b.kind = "dashboard"
             elif REPORT_HEADING.search(title_l) and len(_clean_phrase(title_l)) <= 3:
                 b.kind = "reports"
+        if b.kind in ("role", "module") and not b.title and b.body:
+            # "Dashboard: display total books, ..." written as a plain line under any heading
+            head, _, rest = b.body[0].partition(":")
+            if rest and len(head) < 30 and DASHBOARD_HEADING.search(head) and len(_clean_phrase(head)) <= 2:
+                b.title, b.body, b.kind = head.strip(), _sentences(rest) + b.body[1:], "dashboard"
+                continue
         if b.kind == "role" and not b.title and b.body:
             title, _, rest = b.body[0].partition(":")
             if rest and len(title) < 40:
                 b.title, b.body = title.strip(), _sentences(rest) + b.body[1:]
+        if b.kind == "role" and b.title and (DASHBOARD_HEADING.search(b.title) or REPORT_HEADING.search(b.title)):
+            b.kind = "dashboard" if DASHBOARD_HEADING.search(b.title) else "reports"
     return blocks
 
 
@@ -469,6 +477,12 @@ class Extraction:
         ent = self.entities.get(entity)
         if ent is None:
             return
+        count = re.match(r"^\s*(?:the\s+|total\s+)?number\s+of\s+([a-z][a-z ]*)$", phrase.strip().lower())
+        if count:  # "number of copies" -> copies (integer)
+            name = safe_identifier("_".join(_cut_at_preposition(_clean_phrase(count.group(1)))))
+            if name:
+                ent.fields.setdefault(name, FieldDraft(name, "integer", min_value=0, label=humanize(name).capitalize()))
+                return
         words = _cut_at_preposition(_clean_phrase(phrase))
         if not words:
             return
@@ -856,7 +870,7 @@ def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str,
                     ex.entities[context[0]].refs.add(rk)
     # bare field lists: "Record admission date, assigned doctor, and discharge date."
     m = re.match(r"^(?:record|capture|store|include|log|enter)\s+(.+)$", low)
-    if m and context and "," in m.group(1):
+    if m and context and "," in m.group(1) and not re.search(r"\b(?:with|by selecting|including)\b", m.group(1)):
         items = _split_list(m.group(1))
         if all(_clean_phrase(i) and (_clean_phrase(i)[-1] in lex.ATTRIBUTE_HEADS or to_snake(_singular_phrase(_clean_phrase(i)[-1:])) in ex.entities or "assigned" in i) for i in items):
             for item in items:
@@ -1134,11 +1148,25 @@ def extract_spec(prompt: str) -> PMOutput:
 # assembly: lexicon enrichment, relations, workflows, rules, permissions, metrics
 # ----------------------------------------------------------------------------------------------
 
+def _shade(hex_color: str, modifier: Optional[str]) -> str:
+    """'dark green' -> a darker green; 'light blue' -> a lighter blue (sidebar/accent colours)."""
+    if not modifier:
+        return hex_color
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    factor = 0.55 if modifier in ("dark", "deep") else None
+    if factor:
+        r, g, b = (int(c * factor) for c in (r, g, b))
+    else:
+        r, g, b = (int(c + (255 - c) * 0.45) for c in (r, g, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def _event_like(key: str) -> bool:
     """Records of something that happened (inspection, fuel record, admission) rather than things/people."""
     head = key.split("_")[-1]
-    if head in EVENT_HEADS or (head in RECORD_HEADS and head != "item") or _nominal_to_verb(head) in lex.VERB_STATES:
-        return True
+    verb = _nominal_to_verb(head)
+    if head in EVENT_HEADS or (head in RECORD_HEADS and head != "item") or (verb in lex.VERB_STATES and verb != head):
+        return True  # "admission" (admit) is an event; "book" is a thing even though "to book" is a verb
     return bool(re.search(r"(?:tion|sion)$", head)) and len(head) > 7 and head not in NOMINALIZATION_THINGS
 
 
@@ -1162,6 +1190,9 @@ def _equivalent_field(name: str, ftype: str, existing) -> bool:
             a, b = name.split("_")[0], f.name.split("_")[0]
             if len(a) >= 4 and len(b) >= 4 and a[:4] == b[:4] and a not in {"date", "created"}:
                 return True
+            strip = lambda n: n.rsplit("_", 1)[0] if n.endswith(("_date", "_on", "_at")) else n  # noqa: E731
+            if strip(name) == strip(f.name):
+                return True  # due_on vs due_date
     return False
 
 
@@ -1185,6 +1216,9 @@ def _assemble(ex: Extraction, project_name: str, app_type: str) -> PMOutput:
                         ent.fields["status"] = FieldDraft("status", "enum", values=values, required=True, label="Status",
                                                           explicit=False)
                     continue
+                explicit_dates = sum(1 for f in explicit if f.type in ("date", "datetime"))
+                if ftype in ("date", "datetime") and explicit_dates >= 2:
+                    continue  # the prompt already named this record's dates
                 if name in ent.fields or _equivalent_field(name, ftype, ent.fields.values()):
                     continue
                 fd = FieldDraft(name, ftype, values=values, required="req" in flags, unique="uniq" in flags,
@@ -1244,8 +1278,16 @@ def _assemble(ex: Extraction, project_name: str, app_type: str) -> PMOutput:
             if parent in keys and parent != key and key not in entities[parent].refs:
                 ent.refs.add(parent)
     # unrelated event-like records attach to the anchor (main managed thing) of the app
-    anchor = next((k for k in sorted(entities, key=lambda k: entities[k].order)
-                   if not _event_like(k) and k not in CLASSIFIER_HEADS), None)
+    # "pet owners": the pet belongs to its owner
+    for key in entities:
+        parts = key.split("_")
+        base = "_".join(parts[:-1])
+        if len(parts) > 1 and base in entities and _is_person_noun(parts[-1]) and key not in entities[base].refs:
+            entities[base].refs.add(key)
+    ordered_keys = sorted(entities, key=lambda k: entities[k].order)
+    things = [k for k in ordered_keys if not _event_like(k) and k not in CLASSIFIER_HEADS]
+    # events are about the main managed thing (pets, hives, vehicles) rather than about people
+    anchor = next((k for k in things if not _is_person_noun(k.split("_")[-1])), things[0] if things else None)
     for key, ent in entities.items():
         if key == anchor or ent.refs or not anchor:
             continue
@@ -1329,6 +1371,8 @@ def _assemble(ex: Extraction, project_name: str, app_type: str) -> PMOutput:
                         # verbs of a different word form: "admission" -> admissions
                 for word in _words(clause):
                     verb = _nominal_to_verb(word)
+                    if singularize(word.lower()) == verb:
+                        continue  # "view books": the noun itself, not a nominalised action like "admission"
                     for key in entities:
                         if _nominal_to_verb(key.split("_")[-1]) == verb and verb in lex.VERB_STATES:
                             mentioned.setdefault(key, set()).update({"read", "create", "update"})
@@ -1403,15 +1447,17 @@ def _assemble(ex: Extraction, project_name: str, app_type: str) -> PMOutput:
         ex.trace_item("feature", label, [], label, status="unsupported")
 
     theme = {}
-    color_mentions = re.findall(r"\b(" + "|".join(lex.COLOR_WORDS) + r")\b", ex.lower)
-    if color_mentions and re.search(r"\b(theme|colou?rs?|accent|palette|sidebar|branding)\b", ex.lower):
-        theme["primary_color"] = lex.COLOR_WORDS[color_mentions[0]]
-        side = re.search(r"\b(" + "|".join(lex.COLOR_WORDS) + r")\s+sidebar\b", ex.lower)
+    colors = "|".join(lex.COLOR_WORDS)
+    if re.search(rf"\b({colors})\b", ex.lower) and re.search(r"\b(theme|colou?rs?|accent|palette|sidebar|branding)\b", ex.lower):
+        side = re.search(rf"\b(dark|deep|light)?\s*({colors})(?:[- ]and[- ]\w+)?\s+(?:side\s?bar|navigation|menu)\b", ex.lower)
         if side:
-            theme["sidebar_color"] = lex.COLOR_WORDS[side.group(1)]
-        accent = re.search(r"\b(" + "|".join(lex.COLOR_WORDS) + r")\s+accent\b", ex.lower)
-        if accent:
-            theme["primary_color"] = lex.COLOR_WORDS[accent.group(1)]
+            theme["sidebar_color"] = _shade(lex.COLOR_WORDS[side.group(2)], side.group(1))
+        accent = re.search(rf"\b(dark|deep|light)?\s*({colors})\s+(?:accent|primary|buttons?|highlights?)\b", ex.lower)
+        others = [m for m in re.finditer(rf"\b(dark|deep|light)?\s*({colors})\b", ex.lower)
+                  if not side or m.start() != side.start()]
+        chosen = accent or (others[0] if others else None)  # the sidebar colour is not also the accent
+        if chosen:
+            theme["primary_color"] = _shade(lex.COLOR_WORDS[chosen.group(2)], chosen.group(1))
 
     pm = PMOutput(
         project_name=project_name or f"{humanize(next(iter(entities))).capitalize()} Manager",
