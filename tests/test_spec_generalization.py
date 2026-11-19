@@ -320,3 +320,42 @@ def test_structured_library_prompt():
     labels = [m.label for m in pm.dashboard_metrics]
     assert len(labels) == len(set(labels)) and {"Total books", "Borrowed books", "Overdue loans"} <= set(labels)
     assert pm.theme == {"sidebar_color": "#0c5928"}  # dark green sidebar, default accent
+
+
+def test_helpdesk_prompt_two_word_states_container_module_and_role_verbs():
+    pm = analyze_prompt((DATA / "helpdesk_prompt.txt").read_text(encoding="utf-8"))
+    assert [m.label for m in pm.module_specs] == ["Tickets", "Assets", "Knowledge base"]
+    assert app_entities(pm) == {"Ticket", "Asset", "Article"}  # "Knowledge Base" names the module, not a record
+    ticket = field_map(pm, "Ticket")
+    assert ticket["status"].enum_values == ["open", "in_progress", "resolved", "closed"]
+    assert "due_date" in ticket  # "overdue tickets based on the due date"
+    perms = {(p.role, p.entity): p.actions for p in pm.role_permissions}
+    assert "create" in perms[("employee", "Ticket")] and perms[("employee", "Article")] == ["read"]
+    metrics = {m.label: (m.kind, m.field) for m in pm.dashboard_metrics}
+    assert metrics["Open tickets"][0] == "count_where" and metrics["Overdue tickets"][0] == "alert"
+    assert metrics["Tickets by priority"] == ("breakdown", "priority")
+    assert pm.theme == {"primary_color": "#4f46e5"}
+
+
+def test_gym_restaurant_and_event_prompts():
+    gym = analyze_prompt("Build a gym management app for trainers and members with membership plans, members, trainers, "
+                         "fitness classes, class bookings, and payments.\nPrevent duplicate class bookings for the same member "
+                         "and fitness class.\nThe dashboard should show active members, today's classes, and monthly revenue.")
+    assert "FitnessClass" in app_entities(gym)
+    assert ("unique_together", "ClassBooking", ("member_id", "fitness_class_id")) in {
+        (r.kind, r.entity, tuple(r.fields)) for r in gym.business_rules}
+    assert {"Active members", "Today's classes", "Monthly revenue"} <= {m.label for m in gym.dashboard_metrics}
+
+    food = analyze_prompt("Create a restaurant management system with menu items, tables, reservations, orders, and staff "
+                          "shifts.\nTrack available, occupied, and reserved tables.\nInclude sample data.")
+    assert app_entities(food) == {"MenuItem", "Table", "Reservation", "Order", "StaffShift"}
+    assert field_map(food, "Table")["status"].enum_values == ["available", "occupied", "reserved"]
+    assert "shipping_address" not in field_map(food, "Order")  # restaurant orders are not shipped
+    reservation = next(r for r in food.business_rules if r.kind == "allocation" and r.entity == "Reservation")
+    assert reservation.params["occupied"] == "reserved"
+
+    events = analyze_prompt("Build an event planning platform for organizers with events, venues, speakers, attendees, and "
+                            "ticket sales.\nRecord ticket sales with attendee, event, quantity, and total amount.\nShow upcoming "
+                            "events and revenue on the dashboard.")
+    assert "quantity" not in field_map(events, "Event") and "quantity" in field_map(events, "TicketSale")
+    assert {"Upcoming events", "Revenue"} <= {m.label for m in events.dashboard_metrics}

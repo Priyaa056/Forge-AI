@@ -116,7 +116,8 @@ def _resolve_rules(pm: PMOutput) -> List[BusinessRule]:
             cols: List[str] = []
             for phrase in r.fields:
                 words = phrase.lower().split()
-                ref = next((f for f in e.fields if f.type == "reference" and any(f.name == f"{to_snake(singularize(w))}_id" for w in words)), None)
+                candidates = {f"{to_snake(singularize(w))}_id" for w in words} | {f"{to_snake(singularize(phrase.lower()))}_id"}
+                ref = next((f for f in e.fields if f.type == "reference" and f.name in candidates), None)
                 if ref:
                     cols.append(ref.name)
                     continue
@@ -209,7 +210,9 @@ def _resolve_rules(pm: PMOutput) -> List[BusinessRule]:
                 continue
             avail = next((s for s in rst.enum_values if s in lex.AVAILABLE_STATES), None)
             own_state = to_snake(e.name).split("_")[-1]
-            occ = own_state if own_state in rst.enum_values and own_state != avail else next(
+            own_like = next((s for s in rst.enum_values if s != avail and len(own_state) >= 5
+                             and s.startswith(own_state[:5])), None)  # reservation -> reserved
+            occ = own_state if own_state in rst.enum_values and own_state != avail else own_like or next(
                 (s for s in rst.enum_values if s in lex.OCCUPIED_STATES), None)
             if not avail or not occ or e.name == res.name:
                 continue
@@ -303,6 +306,12 @@ def _metrics(pm: PMOutput) -> List[DashboardMetric]:
                 continue
         if re.search(r"\b(statistics|stats|breakdown|distribution|by)\b", low):
             target = next((e for w in words for e in [_find_entity(pm, w)] if e), None)
+            by = re.search(r"\bby\s+([a-z ]+)$", low)
+            by_field = target and by and next((f for f in target.fields if f.name in (
+                to_snake(by.group(1)), to_snake(singularize(by.group(1))), f"{to_snake(singularize(by.group(1)))}_id")), None)
+            if by_field:
+                add(DashboardMetric(id="", label=label, kind="breakdown", entity=target.name, field=by_field.name))
+                continue
             if target:
                 children = [c for c in ents.values() if any(f.type == "reference" and f.references == target.name
                                                             for f in c.fields)]
@@ -366,8 +375,16 @@ def _metrics(pm: PMOutput) -> List[DashboardMetric]:
                     add(DashboardMetric(id="", label=label, kind="alert", entity=rule.entity, field=rule.fields[0],
                                         params={"rule": "expiry", "warning_days": 30}))
                     continue
+            if words[0] in {"overdue", "late"}:
+                rule = next((r for r in pm.business_rules if r.kind == "overdue" and (
+                    target is None or r.entity == target.name)), None)
+                if rule:
+                    add(DashboardMetric(id="", label=label, kind="alert", entity=rule.entity, field=rule.fields[0],
+                                        params={"rule": "overdue"}))
+                    continue
         target = _find_entity(pm, noun) or next((e for w in words for e in [_find_entity(pm, w)] if e), None)
-        if target and (re.search(r"\b(total|count|number|all)\b", low) or len(words) <= 2):
+        generic_count = len(words) == 1 or (len(words) == 2 and words[0] in {"all", "total", "registered", "number"})
+        if target and (re.search(r"\b(total|count|number|all)\b", low) or generic_count):
             add(DashboardMetric(id="", label=label if "total" in low or "count" in low else f"Total {humanize(pluralize(to_snake(target.name))).lower()}",
                                 kind="count", entity=target.name))
             continue
