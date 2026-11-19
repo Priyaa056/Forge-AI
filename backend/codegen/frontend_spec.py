@@ -248,6 +248,29 @@ export default function ResourcePage({ config, compactHeader = false }) {
     }
   };
 
+  const exportCsv = async () => {
+    setError('');
+    try {
+      const data = await api.get(config.endpoint, { q: search, limit: 200, ...filters });
+      const cols = config.fields.filter((f) => f.name !== 'owner_id');
+      const cell = (f, item) => {
+        const value = f.kind === 'reference' ? (refLabels[f.name]?.[item[f.name]] ?? item[f.name]) : item[f.name];
+        const text = value === null || value === undefined ? '' : String(value);
+        return /[",\\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+      };
+      const rows = [cols.map((c) => c.label).join(','), ...data.items.map((item) => cols.map((c) => cell(c, item)).join(','))];
+      const url = URL.createObjectURL(new Blob([rows.join('\\n')], { type: 'text/csv' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${config.pluralLabel.toLowerCase().replace(/\\s+/g, '-')}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setNotice(`Exported ${data.items.length} ${config.pluralLabel.toLowerCase()}${data.total > data.items.length ? ` (first ${data.items.length} of ${data.total})` : ''}`);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const workflow = config.workflow;
   const actionsFor = (item) => (workflow && canUpdate ? workflow.transitions.filter(
     (t) => t.to !== item[workflow.field] && (t.from.length === 0 || t.from.includes(item[workflow.field]))) : []);
@@ -261,7 +284,10 @@ export default function ResourcePage({ config, compactHeader = false }) {
           <Heading>{config.pluralLabel}</Heading>
           <p className="muted">{total} record{total === 1 ? '' : 's'}{config.access === 'owner' && !isAdmin ? ' (yours)' : ''}</p>
         </div>
-        {canCreate && <button className="btn btn-primary" onClick={() => setEditing({})}>+ New {config.label.toLowerCase()}</button>}
+        <div className="header-actions">
+          <button className="btn" onClick={exportCsv} disabled={loading || total === 0}>Export CSV</button>
+          {canCreate && <button className="btn btn-primary" onClick={() => setEditing({})}>+ New {config.label.toLowerCase()}</button>}
+        </div>
       </div>
 
       <div className="toolbar card">
@@ -489,6 +515,22 @@ export default function ReportsPage() {
         <label className="inline-field">To<input type="date" value={range.date_to} onChange={(e) => setRange({ ...range, date_to: e.target.value })} /></label>
         <button className="btn btn-primary" type="submit" disabled={loading}>{loading ? 'Loading…' : 'Apply'}</button>
         <button className="btn" type="button" onClick={() => { setRange({ date_from: '', date_to: '' }); load({}); }}>Reset</button>
+        <button className="btn" type="button" disabled={!data} onClick={() => {
+          const rows = [['Module', 'Records', 'Group', 'Value', 'Count']];
+          (data?.sections || []).forEach((s) => {
+            rows.push([s.label, s.count, '', '', '']);
+            Object.entries(s.totals || {}).forEach(([f, v]) => rows.push([s.label, '', `Total ${f}`, v, '']));
+            (s.breakdowns || []).forEach((b) => Object.entries(b.counts).forEach(([k, v]) => rows.push([s.label, '', b.field, k, v])));
+            (s.monthly || []).forEach((m) => rows.push([s.label, '', 'month', m.month, m.count]));
+          });
+          const csv = rows.map((r) => r.map((x) => (/[",\\n]/.test(String(x)) ? `"${String(x).replace(/"/g, '""')}"` : String(x))).join(',')).join('\\n');
+          const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `report${range.date_from ? '-' + range.date_from : ''}${range.date_to ? '-to-' + range.date_to : ''}.csv`;
+          link.click();
+          URL.revokeObjectURL(url);
+        }}>Export CSV</button>
       </form>
       {error && <div className="alert alert-error">{error}</div>}
       <div className="two-col">
@@ -528,6 +570,7 @@ export default function ReportsPage() {
 
 EXTRA_CSS = """
 .module-head { margin-bottom: 1rem; }
+.header-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 .tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .75rem; border-bottom: 1px solid var(--border); }
 .tab { border: none; background: transparent; padding: .55rem .9rem; font: inherit; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
 .tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }

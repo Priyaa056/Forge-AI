@@ -197,6 +197,16 @@ def _resolve_rules(pm: PMOutput) -> List[BusinessRule]:
             add(BusinessRule(id="", kind="computed", entity=e.name, fields=[balance.name, total.name, paid.name],
                              params={"expression": f"{total.name} - {paid.name}"},
                              description=f"{humanize(balance.name).capitalize()} = {humanize(total.name)} - {humanize(paid.name)}"))
+    # generic: total = quantity x price when a record has both but no total ("crop quantities and prices")
+    for e in ents.values():
+        qty = _field(e, r"(^|_)quantity$", kinds={"integer", "float", "decimal"})
+        price = _field(e, r"(^|_)(unit_)?price$", kinds={"decimal", "float"})
+        if qty and price and not _field(e, r"^(total_amount|total|amount)$", kinds={"decimal"}):
+            total = EntityField(name="total_amount", type="decimal", label="Total amount", read_only=True, nullable=True)
+            e.fields.insert(len(e.fields) - 1, total)
+            add(BusinessRule(id="", kind="computed", entity=e.name, fields=["total_amount", qty.name, price.name],
+                             params={"expression": f"{qty.name} * {price.name}", "op": "multiply"},
+                             description=f"Total amount = {humanize(qty.name)} x {humanize(price.name)}"))
     # generic: a record with a lifecycle that references a resource with available/occupied states
     # allocates it while open and releases it in a terminal state ("admission" -> bed, "trip" -> vehicle).
     for e in ents.values():
@@ -232,6 +242,26 @@ def _resolve_rules(pm: PMOutput) -> List[BusinessRule]:
     return rules
 
 
+ACTIVE_WORDS = {"active", "current", "currently", "employed", "working", "ongoing", "operational", "running"}
+
+
+def _money_source(pm: PMOutput, ents: Dict[str, DatabaseEntity], words: List[str], side: str):
+    """(entity, money field, date field) for income ("sales revenue") or expense ("monthly expenses")."""
+    order = ["sale", "payment", "invoice", "order", "transaction", "income"] if side == "income" else         ["expense", "cost", "spend", "purchase", "bill"]
+    mentioned = {singularize(w) for w in words}
+    candidates = []
+    for e in ents.values():
+        snake = to_snake(e.name)
+        money = _field(e, r"^total_amount$", r"^amount$", r"^paid_amount$", r"^total$", r"^price$", kinds={"decimal"})
+        date = _date_field(e)
+        kind_rank = next((i for i, k in enumerate(order) if k in snake.split("_")), None)
+        if money and date and kind_rank is not None:
+            candidates.append((0 if set(snake.split("_")) & mentioned else 1, kind_rank, len(snake), e, money, date))
+    candidates.sort(key=lambda c: c[:3])
+    candidates = [c[2:] for c in candidates]
+    return candidates[0][1:] if candidates else None
+
+
 def _metrics(pm: PMOutput) -> List[DashboardMetric]:
     ents = _app_entities(pm)
     metrics: List[DashboardMetric] = []
@@ -265,7 +295,7 @@ def _metrics(pm: PMOutput) -> List[DashboardMetric]:
             continue
         label = phrase.strip().capitalize()
         noun = words[-1]
-        if re.search(r"\b(recent|latest)\b.*\b(activit|record|update|event)", low):
+        if re.search(r"\b(recent|latest)\b", low):
             add(DashboardMetric(id="", label="Recent activity", kind="recent"))
             continue
         if re.search(r"\b(deadlines?|due dates?|due soon)\b", low):
@@ -282,7 +312,36 @@ def _metrics(pm: PMOutput) -> List[DashboardMetric]:
                 add(DashboardMetric(id="", label=f"Average {humanize(to_snake(prog[0].name)).lower()} progress", kind="average",
                                     entity=prog[0].name, field="progress"))
                 continue
+        if re.search(r"\bprofit\b|\bnet (?:income|result)\b", low):
+            income, spend = _money_source(pm, ents, words, "income"), _money_source(pm, ents, words, "expense")
+            if income and spend:
+                add(DashboardMetric(id="", label="Profit and loss" if "loss" in low else label, kind="net",
+                                    entity=income[0].name, field=income[1].name,
+                                    params={"date_field": income[2].name, "minus_entity": spend[0].name,
+                                            "minus_field": spend[1].name, "minus_date_field": spend[2].name}))
+                continue
+        if words == ["loss"]:
+            continue  # "profit and loss" was split in two
+        if re.search(r"\b(expenses?|costs?|spending|expenditures?)\b", low) and not re.search(r"\b(chart|trend|graph)\b", low):
+            spend = _money_source(pm, ents, words, "expense")
+            if spend:
+                add(DashboardMetric(id="", label=label, kind="sum_month" if "month" in low else "sum", entity=spend[0].name,
+                                    field=spend[1].name, params={"date_field": spend[2].name}))
+                continue
+        if re.search(r"\b(land|area|acreage|acres|hectares)\b", low):
+            area = next(((e, f) for e in sorted(ents.values(), key=lambda x: module_order.get(x.name, 99))
+                         for f in e.fields if f.type in ("float", "decimal", "integer")
+                         and re.search(r"(^|_)(area|size|acreage|acres|hectares|land_area)$", f.name)), None)
+            if area:
+                add(DashboardMetric(id="", label=label, kind="sum", entity=area[0].name, field=area[1].name))
+                continue
         if re.search(r"\b(revenue|income|earnings|sales total|turnover)\b", low):
+            preferred = _money_source(pm, ents, words, "income")
+            if preferred:
+                kind = "sum_month" if "month" in low else "sum"
+                add(DashboardMetric(id="", label=label, kind=kind, entity=preferred[0].name, field=preferred[1].name,
+                                    params={"date_field": preferred[2].name}))
+                continue
             money = None
             for e in ents.values():
                 f = _field(e, r"^(amount|paid_amount|total_amount|total|price)$", kinds={"decimal"})
@@ -304,6 +363,25 @@ def _metrics(pm: PMOutput) -> List[DashboardMetric]:
                 add(DashboardMetric(id="", label=label, kind="trend", entity=target.name,
                                     params={"date_field": _date_field(target).name}))
                 continue
+        wise = re.search(r"\b([a-z]+)[- ]wise\s+([a-z]+)", low)
+        if wise:  # "farm-wise crop distribution": crops grouped by farm (directly or through their field)
+            group, subject = _find_entity(pm, wise.group(1)), _find_entity(pm, wise.group(2))
+            if group and subject:
+                direct = next((f for f in subject.fields if f.type == "reference" and f.references == group.name), None)
+                if direct:
+                    add(DashboardMetric(id="", label=label, kind="breakdown", entity=subject.name, field=direct.name))
+                    continue
+                for via in subject.fields:
+                    middle = ents.get(via.references) if via.type == "reference" else None
+                    hop = middle and next((f for f in middle.fields if f.type == "reference" and f.references == group.name), None)
+                    if hop:
+                        add(DashboardMetric(id="", label=label, kind="breakdown", entity=subject.name, field=via.name,
+                                            params={"through": middle.name, "group_field": hop.name, "group_entity": group.name}))
+                        break
+                else:
+                    hop = None
+                if hop:
+                    continue
         if re.search(r"\b(statistics|stats|breakdown|distribution|by)\b", low):
             target = next((e for w in words for e in [_find_entity(pm, w)] if e), None)
             by = re.search(r"\bby\s+([a-z ]+)$", low)
@@ -330,9 +408,26 @@ def _metrics(pm: PMOutput) -> List[DashboardMetric]:
                 add(DashboardMetric(id="", label=label, kind="count_today", entity=target.name, field=_date_field(target).name))
                 continue
         if re.search(r"\bupcoming\b|\bnext\b|\bscheduled\b", low):
+            subject = singularize(words[-1])
+            planned = next(((e, f) for e in ents.values() for f in e.fields if f.type in DATE_KINDS and re.search(
+                rf"^(expected|planned|next|scheduled|estimated)_{re.escape(subject)}", f.name)), None)
+            if planned:  # "upcoming harvests" -> crops by expected harvest date
+                add(DashboardMetric(id="", label=label, kind="upcoming", entity=planned[0].name, field=planned[1].name))
+                continue
             target = next((e for w in reversed(words) for e in [_find_entity(pm, w)] if e), None)
             if target and _date_field(target):
                 add(DashboardMetric(id="", label=label, kind="upcoming", entity=target.name, field=_date_field(target).name))
+                continue
+        # a state named inside the phrase: "equipment in use", "workers currently employed"
+        target = next((e for w in words for e in [_find_entity(pm, w)] if e), None)
+        st = target and _status(target)
+        if st:
+            named = next((v for v in sorted(st.enum_values, key=len, reverse=True)
+                          if re.search(rf"\b{re.escape(v.replace('_', ' '))}\b", low)), None)
+            if named is None and set(words) & ACTIVE_WORDS and "active" in st.enum_values:
+                named = "active"
+            if named and not (len(words) == 2 and words[0] == named):
+                add(DashboardMetric(id="", label=label, kind="count_where", entity=target.name, field="status", value=named))
                 continue
         # "<state> <entities>" e.g. "available beds", "admitted patients", "pending bills"
         if len(words) >= 2:

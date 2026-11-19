@@ -109,6 +109,10 @@ TYPICAL_ATTRIBUTES: Dict[str, List[str]] = {
 
 # A department / activity noun the user wrote -> the record(s) it manages.
 MODULE_RECORDS: Dict[str, List[str]] = {
+    "finance": ["expense"],
+    "financial": ["expense"],
+    "accounting": ["expense"],
+    "expenses": ["expense"],
     "billing": ["invoice"],
     "invoicing": ["invoice"],
     "pharmacy": ["medicine"],
@@ -146,8 +150,9 @@ TYPICAL_RELATIONS: Dict[str, List[str]] = {
     "prescription": ["patient", "doctor", "medicine"],
     "lab_test": ["patient", "doctor"],
     "medical_record": ["patient", "doctor"],
-    "invoice": ["patient", "customer", "order", "student", "member"],
-    "payment": ["invoice", "order", "customer", "member"],
+    "invoice": ["patient", "customer", "order", "student", "member", "buyer"],
+    "sales_invoice": ["order", "sale", "buyer"],
+    "payment": ["invoice", "order", "customer", "member", "buyer"],
     "doctor": ["department"],
     "staff": ["department"],
     "employee": ["department"],
@@ -159,7 +164,16 @@ TYPICAL_RELATIONS: Dict[str, List[str]] = {
     "lesson": ["course"],
     "course": ["teacher", "instructor"],
     "assignment": ["course", "lesson"],
-    "attendance": ["student", "lesson", "course"],
+    "attendance": ["student", "lesson", "course", "worker", "employee"],
+    "work_schedule": ["worker", "employee", "staff"],
+    "field": ["farm"],
+    "crop": ["field"],
+    "irrigation": ["field", "irrigation_system"],
+    "irrigation_system": ["farm", "field"],
+    "water_usage": ["irrigation_system", "field"],
+    "field_activity": ["field", "worker"],
+    "farm_activity": ["farm", "worker"],
+    "expense": ["category", "farm"],
     "examination": ["course"],
     "exam_result": ["examination", "student"],
     "enrollment": ["student", "course"],
@@ -178,7 +192,7 @@ TYPICAL_RELATIONS: Dict[str, List[str]] = {
     "queen": ["hive"],
     "inspection": ["hive"],
     "honey_harvest": ["hive"],
-    "harvest": ["hive"],
+    "harvest": ["hive", "crop", "field", "farm"],
     "swarm_report": ["hive"],
     "hive": ["apiary"],
     "loan": ["book", "member"],
@@ -188,7 +202,7 @@ TYPICAL_RELATIONS: Dict[str, List[str]] = {
     "class_booking": ["member", "fitness_class", "class"],
     "vaccination": ["pet", "patient"],
     "vet_visit": ["pet"],
-    "sale": ["medicine", "product"],
+    "sale": ["medicine", "product", "crop", "buyer"],
     "medicine_sale": ["medicine"],
     "leave_request": ["employee", "staff"],
     "booking": ["room", "event", "customer"],
@@ -221,6 +235,7 @@ FEATURE_WORDS = {
 
 # Attribute words: if a phrase's head noun is one of these it describes a field, not an entity.
 ATTRIBUTE_HEADS = {
+    "area", "size", "variety", "stage", "grade", "boundary", "boundaries", "season", "production", "yield",
     "name", "title", "date", "time", "status", "amount", "price", "cost", "fee", "number", "no", "id", "email", "phone",
     "address", "age", "gender", "description", "notes", "note", "history", "quantity", "qty", "stock", "level", "type",
     "category", "code", "rating", "score", "marks", "grade", "balance", "total", "count", "capacity", "duration",
@@ -241,6 +256,11 @@ NOT_PEOPLE = {"order", "number", "folder", "header", "footer", "filter", "regist
 
 # Common value sets for well-known attribute names.
 KNOWN_VALUE_SETS: Dict[str, List[str]] = {
+    "health_status": ["healthy", "at_risk", "diseased"],
+    "growth_stage": ["seedling", "vegetative", "flowering", "mature", "harvested"],
+    "payment_status": ["unpaid", "partially_paid", "paid"],
+    "cultivation_status": ["fallow", "prepared", "cultivated", "harvested"],
+    "delivery_status": ["pending", "in_transit", "delivered"],
     "gender": ["male", "female", "other"],
     "blood_group": ["a_pos", "a_neg", "b_pos", "b_neg", "ab_pos", "ab_neg", "o_pos", "o_neg"],
     "blood_type": ["a_pos", "a_neg", "b_pos", "b_neg", "ab_pos", "ab_neg", "o_pos", "o_neg"],
@@ -263,7 +283,7 @@ VERB_STATES: Dict[str, str] = {
     "activate": "active", "deactivate": "inactive", "dispense": "dispensed", "capture": "captured",
 }
 
-TERMINAL_STATES = {"completed", "done", "closed", "cancelled", "canceled", "rejected", "discharged", "delivered",
+TERMINAL_STATES = {"harvested", "completed", "done", "closed", "cancelled", "canceled", "rejected", "discharged", "delivered",
                    "returned", "resolved", "paid", "archived", "ended", "lost", "dead", "failed", "dropped", "refunded",
                    "captured", "dispensed", "checked_out", "graduated", "reached", "missed", "sold"}
 CANCEL_STATES = {"cancelled", "canceled", "rejected", "void", "voided", "failed", "lost"}

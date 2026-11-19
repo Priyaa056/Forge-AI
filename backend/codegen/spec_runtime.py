@@ -51,10 +51,10 @@ def check_date_order(obj, rules) -> None:
 
 
 def apply_computed(obj, rules) -> None:
-    for target, left, right in rules:
-        total = float(getattr(obj, left, None) or 0)
-        paid = float(getattr(obj, right, None) or 0)
-        setattr(obj, target, round(total - paid, 2))
+    for target, left, right, *op in rules:
+        first = float(getattr(obj, left, None) or 0)
+        second = float(getattr(obj, right, None) or 0)
+        setattr(obj, target, round(first * second if op and op[0] == "multiply" else first - second, 2))
 
 
 def check_unique_together(db, model, obj, rules) -> None:
@@ -144,7 +144,7 @@ def entity_rule_config(bp: Blueprint, e: BEntity) -> Dict:
             message = r.get("description") or f"{humanize(fields[1])} cannot be before {humanize(fields[0]).lower()}"
             date_order.append([fields[0], fields[1], message])
         elif kind == "computed" and len(fields) == 3 and all(e.get_field(f) for f in fields):
-            computed.append(fields)
+            computed.append(list(fields) + [(r.get("params") or {}).get("op", "subtract")])
         elif kind == "unique_together" and len(fields) >= 2 and all(e.get_field(f) for f in fields):
             ignored = [s for s in (status.enum_values if status else []) if s in CANCEL_STATES]
             labels = ", ".join(e.get_field(f).label.lower() for f in fields)
@@ -324,6 +324,18 @@ def evaluate(db: Session, metric: dict, user: User) -> dict:
             row for row in rows if (_day(getattr(row, date_field, None)) or date.min).replace(day=1) == today.replace(day=1)]
         out["value"] = round(sum(float(getattr(row, field, None) or 0) for row in selected), 2)
         out["format"] = "money"
+    elif kind == "net":
+        def total(entity, field_name, date_field):
+            rows_ = rows if entity == name else _rows(db, entity, user)
+            if "month" in metric["label"].lower():
+                rows_ = [r for r in rows_ if (_day(getattr(r, date_field, None)) or date.min).replace(day=1) == today.replace(day=1)]
+            return sum(float(getattr(r, field_name, None) or 0) for r in rows_)
+        income = total(name, field, params.get("date_field"))
+        spend = total(params["minus_entity"], params["minus_field"], params.get("minus_date_field"))
+        out["value"] = round(income - spend, 2)
+        out["format"] = "money"
+        out["series"] = [{"key": "income", "label": "Income", "value": round(income, 2)},
+                         {"key": "expenses", "label": "Expenses", "value": round(spend, 2)}]
     elif kind == "average":
         values = [float(getattr(row, field)) for row in rows if getattr(row, field, None) is not None]
         out["value"] = round(sum(values) / len(values), 1) if values else 0
@@ -344,8 +356,18 @@ def evaluate(db: Session, metric: dict, user: User) -> dict:
         out["items"] = [_item(name, row, detail(row), db) for row in hits[:6]]
         out["tone"] = "warning"
     elif kind == "breakdown":
-        counts = Counter(getattr(row, field, None) for row in rows)
-        labels = _reference_labels(db, name, field, [k for k in counts if k is not None]) if field in ENTITIES[name]["references"] else {}
+        if params.get("through"):  # crops grouped by the farm of their field
+            middle = MODELS[params["through"]]
+            group_of = {m.id: getattr(m, params["group_field"]) for m in db.scalars(select(middle)).all()}
+            counts = Counter(group_of.get(getattr(row, field, None)) for row in rows)
+            labels = {}
+            target = params.get("group_entity")
+            if target in MODELS:
+                ids = [k for k in counts if k is not None]
+                labels = {r.id: _label(target, r) for r in db.scalars(select(MODELS[target]).where(MODELS[target].id.in_(ids))).all()} if ids else {}
+        else:
+            counts = Counter(getattr(row, field, None) for row in rows)
+            labels = _reference_labels(db, name, field, [k for k in counts if k is not None]) if field in ENTITIES[name]["references"] else {}
         out["series"] = [{"key": str(key), "label": labels.get(key, str(key).replace("_", " ").capitalize() if key is not None else "Not set"),
                           "value": value} for key, value in counts.most_common(12)]
         out["value"] = len(rows)
@@ -515,6 +537,10 @@ ADMIN_ROLES = __ADMIN_ROLES__
 DISPLAY = __DISPLAY__
 PEOPLE = ["Avery Quinn", "Jordan Blake", "Riley Chen", "Morgan Patel", "Casey Rivera", "Taylor Brooks",
           "Jamie Ortiz", "Quinn Foster", "Rowan Hayes", "Skyler Grant"]
+PLACES = ["North Ridge", "Riverside", "Green Valley", "Hilltop", "East Plains", "Lakeside", "Cedar Grove", "Sunny Meadow"]
+VARIANTS = ["A", "B", "C", "D", "E", "F", "G", "H"]
+FUTURE_WORDS = ("due", "expir", "end", "discharg", "deliver", "return", "next", "deadline", "expected", "planned",
+                "estimated", "scheduled", "renewal")
 DEMO_COUNT = 6
 
 
@@ -543,7 +569,7 @@ def seed_reference_data() -> None:
 def _value(entity: str, spec: dict, i: int, refs: dict):
     kind, name = spec["kind"], spec["name"]
     today = date.today()
-    future = any(word in name for word in ("due", "expir", "end", "discharg", "deliver", "return", "next", "deadline"))
+    future = any(word in name for word in FUTURE_WORDS)
     if kind == "reference":
         ids = refs.get(spec["references"]) or []
         return ids[i % len(ids)] if ids else None
@@ -553,9 +579,9 @@ def _value(entity: str, spec: dict, i: int, refs: dict):
     if kind == "boolean":
         return i % 3 != 2
     if kind == "date":
-        return today + timedelta(days=(7 + 5 * i) if future else (i - 3) * 17)
+        return today + timedelta(days=(40 + 10 * i) if future else (i - 3) * 17)
     if kind == "datetime":
-        return datetime.combine(today + timedelta(days=(7 + 5 * i) if future else (i - 2) * 3), datetime.min.time()).replace(hour=9 + i % 8)
+        return datetime.combine(today + timedelta(days=(40 + 10 * i) if future else (i - 2) * 3), datetime.min.time()).replace(hour=9 + i % 8)
     if kind == "time":
         return f"{9 + i % 8:02d}:{'30' if i % 2 else '00'}"
     if kind == "integer":
@@ -576,6 +602,10 @@ def _value(entity: str, spec: dict, i: int, refs: dict):
         return PEOPLE[i % len(PEOPLE)]
     if name in ("name", "title"):
         return f"{spec['entity_label']} {i + 1}"
+    if any(word in name for word in ("location", "address", "city", "region", "site")):
+        return f"{PLACES[i % len(PLACES)]}"
+    if name.endswith(("_type", "variety", "grade", "kind", "class")) or name in ("type", "category"):
+        return f"{spec['label']} {VARIANTS[i % len(VARIANTS)]}"
     if name == "phone" or "phone" in name:
         return f"555-01{i:02d}"
     if name.endswith(("_number", "_code", "code", "sku")):
@@ -608,8 +638,9 @@ def seed_demo_data() -> None:
                 if meta["owner"]:
                     data["owner_id"] = owner.id
                 obj = MODELS[name](**data)
-                for target, left, right in COMPUTED.get(name, []):
-                    setattr(obj, target, round(float(getattr(obj, left) or 0) - float(getattr(obj, right) or 0), 2))
+                for target, left, right, *op in COMPUTED.get(name, []):
+                    first, second = float(getattr(obj, left) or 0), float(getattr(obj, right) or 0)
+                    setattr(obj, target, round(first * second if op and op[0] == "multiply" else first - second, 2))
                 db.add(obj)
                 created.append(obj)
             db.flush()
@@ -675,7 +706,8 @@ def render_seed_data(bp: Blueprint, allocations: Dict[str, List[Dict]]) -> str:
             for name, _kind in transition_date_fields(e, t["to_state"]):
                 state_dates[name] = t["to_state"]
         fields[e.name] = {"owner": e.owner_scoped, "fields": specs, "state_dates": state_dates}
-        computed[e.name] = [r["fields"] for r in bp.rules_for(e.name, "computed") if len(r["fields"]) == 3]
+        computed[e.name] = [list(r["fields"]) + [(r.get("params") or {}).get("op", "subtract")]
+                            for r in bp.rules_for(e.name, "computed") if len(r["fields"]) == 3]
     seeds = {}
     for name, rows in bp.seed_records.items():
         e = bp.entity(name)

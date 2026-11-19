@@ -359,3 +359,37 @@ def test_gym_restaurant_and_event_prompts():
                             "events and revenue on the dashboard.")
     assert "quantity" not in field_map(events, "Event") and "quantity" in field_map(events, "TicketSale")
     assert {"Upcoming events", "Revenue"} <= {m.label for m in events.dashboard_metrics}
+
+
+def test_agritrack_structured_prompt():
+    """Numbered sections with '*' bullets, lead-in lines ("Display:", "Manage:"), role lines and a final note."""
+    pm = analyze_prompt((DATA / "agritrack_prompt.txt").read_text(encoding="utf-8"))
+    assert pm.project_name == "AgriTrack"
+    assert [m.label for m in pm.module_specs] == [
+        "Farms", "Crops", "Workers", "Equipment", "Irrigation", "Harvests", "Sales & Orders", "Fertilizers & Pesticides",
+        "Financial", "Reports"]
+    ents = app_entities(pm)
+    assert {"Farm", "Field", "FieldActivity", "Crop", "Worker", "Attendance", "WorkSchedule", "Equipment", "Irrigation",
+            "IrrigationSystem", "WaterUsage", "Harvest", "Sale", "Order", "Buyer", "SalesInvoice", "Fertilizer",
+            "Pesticide", "Expense"} == ents
+    assert not ents & {"Tractor", "Harvester", "Pump", "Loading", "Error", "UserRole", "Modern", "Area", "Type"}
+    assert {r.name for r in pm.user_roles} == {"admin", "farm_manager", "field_supervisor", "accountant", "worker"}
+    crop = field_map(pm, "Crop")
+    assert {"variety", "planting_date", "expected_harvest_date", "seed_quantity", "growth_stage", "health_status",
+            "expected_production", "field_id"} <= set(crop)
+    assert crop["status"].enum_values == ["planted", "harvested"]  # lifecycle from planting to harvesting
+    assert field_map(pm, "Equipment")["category"].enum_values == ["tractor", "harvester", "pump", "other"]
+    assert set(field_map(pm, "Expense")["category"].enum_values) >= {"seed", "fertilizer", "transportation"}
+    assert field_map(pm, "Field")["farm_id"].references == "Farm"  # "divide farms into individual fields"
+    assert field_map(pm, "Farm")["production_history"].type == "text"
+    metrics = {m.label: (m.kind, m.entity, m.field) for m in pm.dashboard_metrics}
+    for label in ("Total farms", "Total cultivated land", "Active crops", "Workers currently employed", "Equipment in use",
+                  "Upcoming harvests", "Monthly expenses", "Total sales revenue", "Farm-wise crop distribution",
+                  "Upcoming farm activities", "Profit and loss"):
+        assert label in metrics, label
+    assert metrics["Equipment in use"][0] == "count_where"
+    assert metrics["Upcoming harvests"] == ("upcoming", "Crop", "expected_harvest_date")
+    perms = {(p.role, p.entity): p.actions for p in pm.role_permissions}
+    assert "create" in perms[("farm_manager", "Worker")] and perms[("worker", "WorkSchedule")] == ["read"]
+    assert perms[("field_supervisor", "FieldActivity")] == ["read", "update"]
+    assert "create" in perms[("accountant", "Expense")]

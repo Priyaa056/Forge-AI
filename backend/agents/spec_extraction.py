@@ -62,10 +62,16 @@ NOMINALIZATION_THINGS = {"location", "station", "position", "question", "collect
                          "solution", "publication", "profession", "division", "portion", "ration", "lotion", "potion",
                          "television", "vision", "commission", "condition", "description", "specification", "notification",
                          "equation", "foundation", "union", "region", "religion", "session", "pension", "mansion"}
+LEADIN_VERBS = {"display", "show", "include", "manage", "track", "allow", "create", "list", "view", "enter", "record",
+                "provide", "support", "generate", "implement", "use", "monitor", "maintain"}
 CRUD_NOUNS = {"creation", "editing", "deletion", "removal", "viewing", "creating", "deleting", "browsing"}
 ACTION_NOUNS = CRUD_NOUNS | {"listing", "management", "tracking", "scheduling", "categorization"}
 PLURAL_CLASSIFIERS = {"category", "tag", "group", "brand", "genre", "label", "collection"}
-HISTORY_HEADS = {"history", "histories"}  # "order history" -> order (only when that entity exists)
+HISTORY_HEADS = {"history", "histories"}
+RECORD_ALIASES = {"activity", "activities", "record", "records", "log", "logs", "event", "events", "session", "sessions",
+                  "entry", "entries"}  # "irrigation activities" are the irrigation records themselves
+MONEY_HEADS = {"expense", "cost", "wage", "fee", "charge", "spending", "salary", "bill", "payment"}
+ACTIVE_WORDS = {"active", "current", "currently", "employed", "working", "ongoing", "operational", "running"}  # "order history" -> order (only when that entity exists)
 CLASSIFIER_HEADS = {"category", "type", "tag", "group", "kind", "brand", "genre"}  # "product categories" -> category
 # presentation vocabulary: never data entities ("sidebar navigation", "statistics cards", "clean blue theme")
 UI_HEADS = {"theme", "themes", "layout", "layouts", "navigation", "sidebar", "navbar", "bar", "card", "cards", "chart",
@@ -75,7 +81,8 @@ UI_HEADS = {"theme", "themes", "layout", "layouts", "navigation", "sidebar", "na
             "ui", "ux", "toast", "toasts", "banner", "hero", "spacing", "background", "homepage", "storefront",
             "photography", "screen", "screens", "view", "views", "menu", "menus", "widget", "widgets", "grid",
             "control", "controls", "graph", "graphs", "states", "messages", "look", "feel", "palette", "accent"}
-DESIGN_ONLY = {"theme", "themes", "layout", "layouts", "navigation", "sidebar", "navbar", "button", "buttons", "modal",
+DESIGN_ONLY = {"loading", "success", "error", "errors", "state", "states", "empty", "warning", "warnings",
+               "requirement", "requirements", "theme", "themes", "layout", "layouts", "navigation", "sidebar", "navbar", "button", "buttons", "modal",
                "modals", "header", "footer", "typography", "font", "fonts", "icon", "icons", "animation", "animations",
                "mockup", "component", "components", "toast", "toasts", "banner", "hero", "spacing", "background",
                "homepage", "storefront", "photography", "widget", "widgets", "palette", "accent", "ui", "ux", "chart",
@@ -89,13 +96,14 @@ STATE_ADJECTIVES = {"upcoming", "available", "pending", "active", "current", "re
                     "admitted", "assigned", "occupied", "overdue", "expired", "completed", "cancelled", "canceled",
                     "open", "closed", "inactive", "featured", "popular", "latest", "selected", "registered",
                     "scheduled", "unpaid", "paid", "outstanding", "archived", "approved", "rejected"}
-EVENT_HEADS = {"fine", "penalty", "donation", "expense", "claim", "refund", "visit", "reading", "check", "checkup", "inspection", "report", "log", "record", "request", "entry",
+EVENT_HEADS = {"activity", "usage", "consumption", "application", "fine", "penalty", "donation", "expense", "claim", "refund", "visit", "reading", "check", "checkup", "inspection", "report", "log", "record", "request", "entry",
                "harvest", "sale", "payment", "assessment", "evaluation", "observation", "measurement", "treatment",
                "session", "transaction", "incident", "admission", "booking", "reservation", "delivery", "trip",
                "submission", "attendance", "appointment", "order", "loan", "rental", "shipment", "survey", "audit"}
 IMPERATIVE_START = re.compile(r"^(?:implement|build|create|add|provide|include|support|develop|enable|design|set up|"
                               r"introduce|offer)\b", re.I)
-VERB_START = {"allow", "use", "ensure", "display", "show", "make", "support", "provide", "keep", "do", "don't", "generate",
+VERB_START = {"divide", "split", "monitor", "select", "choose", "pick", "calculate", "compute", "verify", "start",
+              "allow", "use", "ensure", "display", "show", "make", "support", "provide", "keep", "do", "don't", "generate",
               "connect", "redesign", "remove", "replace", "inspect", "review", "run", "start", "verify", "analyze",
               "analyse", "let", "enable", "give", "send", "store", "track", "record", "register", "manage", "book",
               "add", "create", "maintain", "update", "edit", "delete", "view", "search", "filter", "sort", "list", "log",
@@ -116,7 +124,7 @@ MODULE_SUFFIXES = {"management", "module", "modules", "system", "section", "hand
 APP_NOUNS = r"(?:management system|management app|management application|management platform|management software|management tool|system|app|application|platform|website|web app|site|portal|tool|software|tracker|solution|marketplace|store|shop|dashboard|manager)"
 META_HEADING = re.compile(r"\b(technical|technolog\w*|tech stack|stack|design\w*|ui|ux|styl\w*|theme\w*|instructions?|"
                           r"notes?|deliverables?|constraints?|deployment|testing|important|generation|layout|"
-                          r"look and feel|branding|non-functional|nonfunctional|guidelines|general|architecture)\b", re.I)
+                          r"look and feel|branding|non-functional|nonfunctional|guidelines|general|architecture|final)\b", re.I)
 TECH_WORDS = {"api", "apis", "rest", "restful", "database", "databases", "db", "crud", "endpoint", "endpoints",
               "frontend", "backend", "server", "jwt", "sql", "postgresql", "postgres", "react", "fastapi", "schema",
               "schemas", "typescript", "tailwind", "css", "html", "javascript", "python", "docker", "orm", "json",
@@ -147,7 +155,8 @@ DEMO_DATA = re.compile(r"\b(sample|demo|seed|synthetic|dummy|mock|example|realis
 
 ROLE_ACTION_WORDS = [
     (re.compile(r"\bfull (?:system )?access\b|\ball (?:modules|features|access)\b|\beverything\b|\bsuper\s?user\b", re.I), {"read", "create", "update", "delete"}),
-    (re.compile(r"\b(manage|management|register|registration|create|add|book|booking|record|recording|maintain|update|edit|issue|schedule|admit|admission|process|handle|submit|request|raise|report|place|apply|enrol|enroll|log|order)\b", re.I), {"read", "create", "update"}),
+    (re.compile(r"\b(update|edit|modify|change|correct)\b(?!.*\b(?:manage|create|add|register|record)\b)", re.I), {"read", "update"}),
+    (re.compile(r"\b(manage|management|register|registration|create|add|book|booking|record|recording|maintain|issue|schedule|admit|admission|process|handle|submit|request|raise|report|place|apply|enrol|enroll|log|order)\b", re.I), {"read", "create", "update"}),
     (re.compile(r"\b(access|view|see|read|browse|monitor|check)\b", re.I), {"read"}),
 ]
 
@@ -161,6 +170,7 @@ class PromptValidationError(ValueError):
 # ----------------------------------------------------------------------------------------------
 
 def _strip_markup(text: str) -> str:
+    text = re.sub(r"(?m)^(\s*)[*+]\s+", r"\1- ", text)  # "* item" bullets survive the emphasis removal below
     text = re.sub(r"[*_`]{1,3}", "", text)
     text = text.replace("—", " - ").replace("–", " - ").replace("’", "'").replace("“", '"').replace("”", '"')
     return text
@@ -240,6 +250,9 @@ class Block:
     body: List[str]             # sentences belonging to this block (title remainder + sub-bullets)
     section: str                # nearest heading text
     kind: str                   # module | role | meta | dashboard | reports | text
+    is_section: bool = False    # a numbered section title ("3. Farm Management") owning the bullets below it
+    noun_items: List[Tuple[str, str]] = field(default_factory=list)  # (lead-in, noun-phrase bullet): field lists
+    raw_items: List[str] = field(default_factory=list)               # bullets as written (role lines)
 
 
 def _parse_blocks(text: str) -> List[Block]:
@@ -256,20 +269,56 @@ def _parse_blocks(text: str) -> List[Block]:
             return "meta"
         return "module"
 
+    numbered: Optional[Block] = None   # the numbered section currently collecting bullets
+    leadin = ""
+    blank_before = True
     for raw in lines:
         if not raw.strip():
+            blank_before = True
             continue
         indent = len(raw) - len(raw.lstrip(" \t"))
         line = raw.strip()
+        was_blank, blank_before = blank_before, False
         heading = re.match(r"^#{1,6}\s*(.+)$", line)
-        if heading or (len(line) < 60 and line.endswith(":") and not re.match(r"^([-*•]|\d+[.)])", line)):
-            section = (heading.group(1) if heading else line[:-1]).strip()
-            current = None
+        is_marker = re.match(r"^([-*•+]|\d+[.)])\s", line)
+        lead_word = (_words(line) or [""])[0].lower()
+        known_heading = lead_word not in CREATE_VERBS | IMPERATIVE_WORDS | LEADIN_VERBS and bool(
+            ROLE_HEADING.search(line) or META_HEADING.search(line) or DASHBOARD_HEADING.search(line)
+            or (REPORT_HEADING.search(line) and len(_words(line)) <= 3))
+        if not heading and numbered is not None and len(line) < 60 and line.endswith(":") and not is_marker                 and not known_heading:
+            leadin = line[:-1].strip()  # "Display:", "Allow users to:", "Manage:" inside a numbered section
+            continue
+        title_line = (was_blank and not is_marker and len(line) < 50 and not re.search(r"[.!?:;,]$", line)
+                      and len(_words(line)) <= 6 and line[:1].isupper() and not re.search(r"[.!?]\s", line))
+        if heading or title_line or (len(line) < 60 and line.endswith(":") and not is_marker):
+            section = (heading.group(1) if heading else line.rstrip(":")).strip()
+            current, numbered, leadin = None, None, ""
             current_indent = -1
             continue
         item = re.match(r"^(?:[-*•+]|\d+[.)]|[a-z][.)])\s+(.*)$", line)
         content = item.group(1).strip() if item else line
         kind = section_kind(section) if section else "module"
+        bullet = bool(item) and bool(re.match(r"^[-*•+]\s", line))
+        number_title = (bool(item) and not bullet and len(content) < 60 and ":" not in content
+                        and not re.search(r"[.!?]$", content))
+        if number_title:
+            current = Block(title=content, body=[], section=section, kind=kind, is_section=True)
+            numbered, leadin, current_indent = current, "", indent
+            blocks.append(current)
+            continue
+        if numbered is not None and (bullet or (not item and not was_blank)):
+            numbered.raw_items.append(content)
+            first_word = (_words(content) or [""])[0].lower()
+            starts_with_verb = first_word in VERB_START or first_word in CREATE_VERBS or first_word in IMPERATIVE_WORDS
+            if bullet and not starts_with_verb and len(_words(content)) <= 6 and not re.search(r"[:;]", content):
+                numbered.noun_items.append((leadin, content.rstrip(".!")))
+            else:
+                numbered.body.extend(_sentences(content))
+            continue
+        if numbered is not None and not item:
+            numbered, leadin = None, ""  # a paragraph after a blank line ends the numbered section
+        if item and not bullet:
+            numbered, leadin = None, ""
         if item and (current is None or indent <= current_indent):
             title, _, rest = content.partition(":")
             if not rest and " - " in content and len(content.split(" - ")[0]) < 50:
@@ -301,6 +350,16 @@ def _parse_blocks(text: str) -> List[Block]:
             current_indent = -1
     for b in blocks:
         title_l = b.title.lower()
+        if b.is_section and b.kind == "module":
+            if ROLE_HEADING.search(title_l):
+                b.kind = "role"
+            elif META_HEADING.search(title_l) and not DASHBOARD_HEADING.search(title_l):
+                b.kind = "meta"
+        if b.is_section and b.kind == "dashboard" or (b.is_section and DASHBOARD_HEADING.search(title_l)):
+            b.kind = "dashboard"
+            b.body = b.body + [f"{lead} {noun[:1].lower() + noun[1:]}".strip() for lead, noun in b.noun_items]
+            b.noun_items = []
+            continue
         if b.kind == "module" and b.title:
             if DASHBOARD_HEADING.search(title_l):
                 b.kind = "dashboard"
@@ -401,7 +460,8 @@ class Extraction:
             base = to_snake(_singular_phrase(stripped))
             known = base in self.entities or base in lex.TYPICAL_ATTRIBUTES or base in lex.MODULE_RECORDS
             words = stripped if known else words
-        while len(words) > 1 and (words[0] in STATE_ADJECTIVES or words[0] in UI_ADJECTIVES):
+        while len(words) > 1 and (words[0] in STATE_ADJECTIVES or words[0] in UI_ADJECTIVES or (
+                words[0].endswith("ed") and to_snake(_singular_phrase(words[1:])) in self.entities)):
             words = words[1:]
         if not words or any(w in TECH_WORDS for w in words):
             return None
@@ -445,7 +505,17 @@ class Extraction:
             head = singularize(words[-1])
             if key in self.entities:
                 return key
-        if head in lex.ATTRIBUTE_HEADS or head in GENERIC_NOISE_HEADS or phrase in lex.FEATURE_WORDS:
+        if len(words) > 1 and words[-1] in RECORD_ALIASES:
+            base = to_snake(_singular_phrase(words[:-1]))
+            if base in self.entities and _event_like(base):
+                return base  # "irrigation activities/history/records" -> the irrigation records
+            twin = next((k for k in self.entities if k.endswith("_" + head) and k != key
+                         and k.split("_")[0] in set(self.entities) | set(self.domain_words) | {words[0]}), None)
+            if twin and (words[0] in self.entities or singularize(words[0]) in self.entities):
+                return twin  # "farm activities" when "field activities" already exist
+        noise = head in GENERIC_NOISE_HEADS and not (len(words) > 1 and head in ("activity",) and words[0] not in {
+            "recent", "latest", "user", "system", "all", "daily", "my"})
+        if head in lex.ATTRIBUTE_HEADS or noise or phrase in lex.FEATURE_WORDS:
             return None
         if len(words) > 3:
             words = words[-2:]
@@ -472,8 +542,8 @@ class Extraction:
             if len(words) > 1:
                 modifier = to_snake(singularize(words[0]))
                 if modifier in self.entities and modifier != key:
-                    if key in CLASSIFIER_HEADS:
-                        self.entities[modifier].refs.add(key)  # products belong to a category
+                    if key in CLASSIFIER_HEADS or (_event_like(modifier) and not _event_like(key)):
+                        self.entities[modifier].refs.add(key)  # products belong to a category; irrigation uses a system
                     else:
                         ent.refs.add(modifier)
         return key
@@ -502,7 +572,8 @@ class Extraction:
             self.add_field(entity, "time")
             return
         # references: "patient", "selecting a doctor", "assigned doctor", "doctor name"
-        ref_words = [w for w in words if w not in {"selection", "name", "id", "details", "assigned", "selected", "responsible"}]
+        ref_words = [w for w in words if w not in {"selection", "name", "id", "details", "assigned", "selected", "responsible",
+                                                   "assignment", "allocation", "reference", "link"}]
         if ref_words:
             ref_key = to_snake(_singular_phrase(ref_words))
             if ref_key in self.entities and ref_key != entity:
@@ -565,9 +636,14 @@ def infer_field(words: List[str], entity_key: str) -> Optional[FieldDraft]:
     text = " ".join(words)
     if not words or text in {"details", "information", "info", "data", "record", "records", "profile", "profiles"}:
         return None
+    if words[-1] in {"details", "information", "info"} and len(words) > 1 and not set(words[:-1]) & set(entity_key.split("_")) \
+            and not _is_person_noun(words[-2]):
+        name = safe_identifier("_".join(words[:-1]))  # "ownership details" -> ownership
+        return FieldDraft(name, "text", searchable=True, label=humanize(name).capitalize())
     if words[-1] in {"details", "information", "info", "data", "profile", "profiles"} or text in CONTROL_VERBS:
         return None  # "employee details" (the record itself), "add"/"remove" controls
-    if any(w in {"dashboard", "admin", "panel", "login", "registration", "authentication", "page", "pages"} for w in words):
+    if words[-1] in {"dashboard", "admin", "panel", "login", "registration", "authentication", "page", "pages"} or \
+            any(w in {"dashboard", "panel", "login", "authentication"} for w in words):
         return None
     entity_words = entity_key.split("_")
     trimmed = [w for w in words if w not in entity_words] or words
@@ -578,6 +654,13 @@ def infer_field(words: List[str], entity_key: str) -> Optional[FieldDraft]:
     has = lambda *opts: any(o in words or o in singular_words for o in opts) or any(text.endswith(o) for o in opts)  # noqa: E731
 
     if has("status", "state", "stage"):
+        qualifiers = [w for w in trimmed if w not in ("status", "state", "stage", "statuses", "current", "overall",
+                                                      "operating", "operational", "record", "workflow")]
+        if qualifiers and trimmed[-1] in ("status", "stage", "state"):  # "growth stage", "health status"
+            known = lex.KNOWN_VALUE_SETS.get(plural_name)
+            if known:
+                return FieldDraft(plural_name, "enum", values=list(known), label=humanize(plural_name).capitalize())
+            return FieldDraft(plural_name, "string", searchable=True, label=humanize(plural_name).capitalize())
         return FieldDraft("status", "enum", label="Status")
     for known, values in lex.KNOWN_VALUE_SETS.items():
         if name == known or text.replace(" ", "_") == known:
@@ -589,7 +672,7 @@ def infer_field(words: List[str], entity_key: str) -> Optional[FieldDraft]:
     if has("balance", "outstanding", "due amount") or text in {"pending balance", "pending amount"}:
         return FieldDraft("balance", "decimal", label="Balance")
     if has("price", "cost", "amount", "fee", "fees", "salary", "revenue", "budget", "charge", "charges", "fare", "wage",
-           "total", "paid", "tax", "discount", "value") and not has("number", "count", "date"):
+           "total", "paid", "tax", "discount", "value", "expense", "expenses", "spending") and not has("number", "count", "date"):
         return FieldDraft(name if name not in {"total", "paid", "value"} else f"{name}_amount", "decimal", min_value=0, label=label)
     if has("age"):
         return FieldDraft("age", "integer", min_value=0, max_value=150, label="Age")
@@ -601,7 +684,9 @@ def infer_field(words: List[str], entity_key: str) -> Optional[FieldDraft]:
         return FieldDraft(name, "integer", min_value=0, label=label)
     if has("year"):
         return FieldDraft(name, "integer", min_value=1900, label=label)
-    if has("weight", "height", "distance", "km", "kilometers", "miles", "liters", "litres", "mileage", "kg", "temperature"):
+    if has("weight", "height", "distance", "km", "kilometers", "miles", "liters", "litres", "mileage", "kg", "temperature",
+           "area", "acreage", "acres", "hectares", "size", "production", "yield", "output", "volume", "usage", "consumption") \
+            and not has("history", "notes", "description", "details", "remarks"):
         return FieldDraft(name, "float", min_value=0, label=label)
     if has("deadline", "due") and not has("amount"):
         return FieldDraft("due_date", "date", label="Due date")
@@ -616,10 +701,13 @@ def infer_field(words: List[str], entity_key: str) -> Optional[FieldDraft]:
     if has("time", "slot"):
         fname = name if name not in {"time", "time_slot", "slot"} else f"{entity_key}_time"
         return FieldDraft(fname, "time", label=label if name not in {"time", "time_slot", "slot"} else "Time")
+    if has("availability") and len(trimmed) > 1 and not _is_person_noun(trimmed[0]):
+        return FieldDraft(name, "float", min_value=0, label=label)
     if has("availability", "available", "active", "enabled", "published") or words[0] in {"is", "has"}:
         base = "available" if has("availability", "available") else trimmed[-1]
         return FieldDraft(f"is_{base}", "boolean", label=humanize(base).capitalize())
     if has("history", "notes", "note", "description", "remarks", "comments", "address", "instructions", "summary",
+           "boundary", "boundaries",
            "diagnosis", "findings", "result", "results", "bio", "biography", "content", "body", "symptoms", "treatment"):
         tname = plural_name if trimmed[-1] in {"notes", "findings", "symptoms", "instructions", "remarks", "results",
                                                 "comments"} else name
@@ -627,7 +715,8 @@ def infer_field(words: List[str], entity_key: str) -> Optional[FieldDraft]:
     if has("image", "photo", "picture", "url", "link", "website", "logo"):
         return FieldDraft(name if name.endswith("url") else f"{name}_url", "string", label=label)
     searchable = has("name", "title", "number", "code", "specialization", "designation", "category", "type", "location")
-    return FieldDraft(name, "string", searchable=searchable, unique=has("code", "sku", "isbn", "serial"), label=label)
+    return FieldDraft(name, "string", searchable=searchable, unique=has("code", "sku", "isbn", "serial", "registration"),
+                      label=label)
 
 
 # ----------------------------------------------------------------------------------------------
@@ -654,9 +743,12 @@ def validate_prompt(prompt: Optional[str]) -> str:
 def _domain(ex: Extraction, text: str) -> Tuple[str, str]:
     """Return (project name, app type) derived from the prompt itself."""
     name = None
-    m = re.search(r"\b(?:named|called|titled|name it|brand(?:ed)? as)\s+[\"']?([A-Z0-9][\w&' -]{1,40}?)[\"']?(?=[,.;:!\n]|\s+(?:with|that|for|which|and|to)\b|$)", text)
+    m = re.search(r"\b(?:named|called|titled|name it|brand(?:ed)? as)\s+[\"']?([A-Z0-9][\w&' -]{1,70}?)[\"']?(?=[,.;:!\n]|\s+(?:with|that|for|which|and|to)\b|$)", text)
+    subtitle = ""
     if m:
-        name = m.group(1).strip(" '\"")
+        name = re.sub(r"\s+", " ", m.group(1).strip(" '\""))
+        if " - " in name:  # "AgriTrack - Smart Farm Management System": brand + description
+            name, subtitle = (part.strip() for part in name.split(" - ", 1))
     if not name:  # "Analyze the existing MediCare Hospital project and correct it"
         m = re.search(r"\b(?:existing|current|the|our|my)\s+([A-Z][\w&'-]*(?:\s+[A-Z][\w&'-]*){0,4})\s+"
                       r"(?:project|application|app|website|platform|site)\b", text)
@@ -666,7 +758,10 @@ def _domain(ex: Extraction, text: str) -> Tuple[str, str]:
                   text, re.I)
     domain_phrase = ""
     app_noun = ""
-    if m:
+    sm = re.search(r"((?:[\w-]+\s+){1,4}?)" + APP_NOUNS + r"\b", subtitle, re.I) if subtitle else None
+    if sm:  # the brand's description names the domain ("Smart Farm Management System")
+        domain_phrase, app_noun = sm.group(1).strip(), subtitle[sm.end(1):sm.end()].strip()
+    elif m:
         domain_phrase = m.group(1).strip()
         app_noun = text[m.end(1):m.end()].strip()
     else:  # "This is not the requested Hospital Management System" (skip descriptions of the current state)
@@ -683,7 +778,7 @@ def _domain(ex: Extraction, text: str) -> Tuple[str, str]:
                 app_noun = fm.group(2)
                 break
     domain_words = [w.lower() for w in _words(domain_phrase)
-                    if w.lower() not in DETERMINERS | {"modern", "responsive", "full-stack", "fullstack", "web", "mobile",
+                    if w.lower() not in DETERMINERS | {"modern", "responsive", "full-stack", "fullstack", "web", "mobile", "smart",
                                                         "online", "complete", "multi-specialty", "professional", "small",
                                                         "simple", "basic", "secure", "beautiful", "premium", "smart"}]
     ex.domain_words = [singularize(w) for w in domain_words if w not in {"management"}]
@@ -811,6 +906,10 @@ def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str,
     if m and context:
         ex.set_statuses(context[0], _split_list(m.group(1)), source)
 
+    special = _special_sentence(ex, low, context, source)
+    if special is not None:
+        return touched + special
+
     # verb object + field list
     verb_pat = r"\b(" + "|".join(sorted(CREATE_VERBS | {"display", "show", "store"}, key=len, reverse=True)) + r")\s+(.+?)(?:\s+(?:with|by selecting|by choosing|including|containing|specifying|showing|having|such as)\s+(.+?))?(?:\.|;|$)"
     verb_re = re.compile(verb_pat)
@@ -822,7 +921,7 @@ def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str,
         verb, obj, fields = m.group(1), m.group(2), m.group(3)
         if verb == "assign" and context:
             continue  # "assign rooms and beds" references existing records (handled below)
-        if re.match(r"^(?:a|an|the|my|our)?\s*(?:[\w-]+\s+){0,2}?" + APP_NOUNS + r"\b", obj):
+        if re.match(r"^(?:a|an|the|my|our)?\s*(?:[\w-]+\s+){0,5}?" + APP_NOUNS + r"(?:\s*$|\s+(?:to|for|that|which|where|with)\b)", obj):
             continue  # the object is the application itself
         before = low[:m.start()].split()[-1:]
         if before and (before[0] in DETERMINERS or before[0] in {"online", "web", "e-commerce", "ecommerce", "retail",
@@ -841,6 +940,18 @@ def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str,
             break  # "track available, occupied and reserved tables": states, not records
         allow_new = strong and verb not in {"display", "show"} and (verb not in WEAK_VERBS or not context)
         keys: List[str] = []
+        existing_before = set(ex.entities)
+        # "tractors, harvesters, pumps, and other agricultural equipment" -> equipment with a category
+        if len(obj_items) >= 3 and re.match(r"^(?:other|similar)\s+", obj_items[-1]):
+            rest = re.sub(r"^(?:other|similar)\s+", "", obj_items[-1])
+            head_words = _clean_phrase(rest)[-1:]
+            parent = (ex.add_entity(" ".join(head_words), source, allow_new=False) if head_words else None) or \
+                ex.add_entity(rest, source, allow_new=allow_new)  # "other agricultural equipment" -> equipment
+            if parent:
+                ex.entities[parent].subtypes = [to_snake(singularize(_clean_phrase(i)[-1])) for i in obj_items[:-1]
+                                                if _clean_phrase(i)] + ["other"]
+                touched.append(parent)
+                continue
         people = [i for i in obj_items if _clean_phrase(i) and _is_person_noun(_clean_phrase(i)[-1])]
         if context and len(obj_items) >= 3 and len(people) == len(obj_items):
             last = _clean_phrase(obj_items[-1])
@@ -862,9 +973,18 @@ def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str,
                 if cand and cand not in ex.entities and _is_person_noun(cand.split("_")[-1]):
                     keys.append(context[0])
                     continue
-            if words[-1] in lex.ATTRIBUTE_HEADS and context:
+            if words[-1] in HISTORY_HEADS and len(words) > 1 and ex.resolve(list(words), allow_new=False):
+                key = ex.resolve(list(words), allow_new=False)
+                if key and key not in keys:
+                    keys.append(key)
+                continue
+            if (words[-1] in lex.ATTRIBUTE_HEADS or singularize(words[-1]) in lex.ATTRIBUTE_HEADS) and context:
                 ex.add_field(context[0], item)
                 continue
+            if not allow_new and context and verb in WEAK_VERBS:
+                head = to_snake(_singular_phrase(words))
+                if _event_like(head) and ex.resolve(list(words), allow_new=False) is None:
+                    allow_new = True  # "track attendance", "track water usage": records of their own
             key = ex.add_entity(item, source, allow_new=allow_new)
             if key:
                 keys.append(key)
@@ -876,8 +996,15 @@ def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str,
             target = keys[0]
             for item in _split_list(fields):
                 ex.add_field(target, item)
+        # recording an existing record inside an event module links them ("record harvested crops" in Harvests)
+        if context and _event_like(context[0]):
+            for key in list(keys):
+                if key != context[0] and key in ex.entities and key in existing_before:
+                    ex.entities[context[0]].refs.add(key)
+                    if key in touched:
+                        touched.remove(key)
         # "assign rooms and beds" after "admit patients" -> context entity references them
-        for am in re.finditer(r"\bassign(?:ed|s|ing)?\s+(.+?)(?:\.|;|$)", low):
+        for am in re.finditer(r"\bassign(?:ed|s|ing)?\s+(?!.*\bto\b)(.+?)(?:\.|;|$)", low):
             for item in _split_list(am.group(1)):
                 rk = ex.add_entity(item, source, allow_new=False)
                 if rk and context and rk != context[0]:
@@ -890,6 +1017,127 @@ def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str,
             for item in items:
                 ex.add_field(context[0], item)
     return touched
+
+
+def _noun_items(ex: Extraction, b: Block, module_entities: List[str], module: Optional[ModuleSpec]) -> None:
+    """Noun-phrase bullets of a numbered section: a field list, or categories of a money record."""
+    items = [(lead, noun) for lead, noun in b.noun_items if usable_noun(noun)]
+    if not items:
+        return
+    if any(re.search(r"\breports?\b", lead, re.I) for lead, _ in items):
+        ex.wants_reports = True  # "Create reports for: crop production, ..."
+        return
+    heads = [singularize(_clean_phrase(n)[-1]) for _, n in items if _clean_phrase(n)]
+    money = [h for h in heads if h in MONEY_HEADS]
+    if len(money) >= 3 and len(money) >= len(heads) / 2:
+        # "Seed expenses, Fertilizer expenses, Worker wages, ..." -> one money record with a category
+        main = max(set(money), key=money.count)
+        target = next((k for k in module_entities if k.split("_")[-1] == main), None) or (
+            module_entities[0] if module_entities else ex.add_entity(main, b.title))
+        if not target:
+            return
+        categories = []
+        for _, noun in items:
+            words = _clean_phrase(noun)
+            head = singularize(words[-1]) if words else ""
+            if head not in MONEY_HEADS:
+                ex.metric_phrases.append(noun)  # "Crop sales revenue", "Profit and loss" are figures, not categories
+                continue
+            words = words[:-1] if head in ("expense", "cost", "charge", "fee", "spending") and len(words) > 1 else words
+            categories.append(to_snake(" ".join(words)))
+        ent = ex.entities[target]
+        ent.subtypes = list(dict.fromkeys(categories))
+        for name, kind in (("amount", "decimal"), (f"{target.split('_')[-1]}_date", "date"), ("description", "text")):
+            ent.fields.setdefault(name, FieldDraft(name, kind, required=name == "amount", min_value=0 if kind == "decimal" else None,
+                                                   label=humanize(name).capitalize()))
+        if module is not None and target not in module.entities:
+            module.entities.insert(0, target)
+        ex.trace_item("field", f"{humanize(target)} categories", [f"{to_pascal(target)}.category"], b.title)
+        return
+    if not module_entities:
+        return
+    for _, noun in items:  # "Crop name", "Planting date", "Field assignment", "Growth stage" ...
+        ex.add_field(module_entities[0], noun)
+
+
+def usable_noun(noun: str) -> bool:
+    return not re.search(r"\b(?:must|should|will|can|is|are|be)\b", noun, re.I) and len(_words(noun)) <= 6
+
+
+def _special_sentence(ex: Extraction, low: str, context: List[str], source: str) -> Optional[List[str]]:
+    """Sentence shapes with a fixed meaning. Returns the touched records, or None when not one of them."""
+    # "generate water consumption reports" -> the reports page, not a record
+    if re.match(r"^\s*(?:generate|create|produce|export|view|provide)\b.*\breports?\b", low):
+        ex.wants_reports = True
+        return []
+    # "divide farms into individual fields" -> a field belongs to a farm
+    m = re.search(r"\b(?:divide|split|break|organi[sz]e|group)\s+(.+?)\s+into\s+(?:individual\s+|separate\s+|multiple\s+|smaller\s+)?(.+?)(?:[.;,]|$)", low)
+    if m:
+        parent = ex.add_entity(m.group(1), source, allow_new=True)
+        child = ex.add_entity(m.group(2), source, allow_new=True)
+        if parent and child and parent != child:
+            ex.entities[child].refs.add(parent)
+            return [child]
+    # "view field boundaries and cultivation status" / "monitor water availability" -> attributes
+    m = re.match(r"^\s*(?:view|see|monitor|display|show|check)\s+(.+?)(?:[.;]|$)", low)
+    if m and context and "," not in m.group(1):
+        items = _split_list(m.group(1))
+        attr_like = lambda w: singularize(w[-1]) in lex.ATTRIBUTE_HEADS or w[-1] in lex.ATTRIBUTE_HEADS or \
+            w[-1] in ("availability", "boundaries", "boundary", "progress", "status", "usage", "levels")  # noqa: E731
+        cleaned = [_clean_phrase(i) for i in items]
+        if cleaned and all(c and attr_like(c) for c in cleaned):
+            owner = context[0]
+            for words in cleaned:
+                maybe = to_snake(singularize(words[0])) if len(words) > 1 else ""
+                owner = maybe if maybe in ex.entities else owner
+                ex.add_field(owner, " ".join(words[1:]) if maybe in ex.entities else " ".join(words))
+            return []
+    # "select farm and field" -> the record references them
+    m = re.match(r"^\s*(?:select|choose|pick|link(?: to)?|associate with)\s+(?:a\s+|the\s+)?(.+?)(?:[.;]|$)", low)
+    if m and context:
+        for item in _split_list(m.group(1)):
+            ref = ex.add_entity(item, source, allow_new=False)
+            if ref and ref != context[0]:
+                ex.entities[context[0]].refs.add(ref)
+            elif not ref:
+                ex.add_field(context[0], item)
+        return []
+    # "assign workers to farms and activities" / "assign applications to specific fields and crops"
+    m = re.search(r"\bassign\s+(.+?)\s+to\s+(?:specific\s+|the\s+|their\s+)?(.+?)(?:[.;]|$)", low)
+    if m and context:
+        subject = ex.add_entity(m.group(1), source, allow_new=False) or context[0]
+        for item in _split_list(m.group(2)):
+            target = ex.add_entity(item, source, allow_new=False)
+            if not target or target == subject:
+                continue
+            if _event_like(target) and not _event_like(subject):
+                ex.entities[target].refs.add(subject)   # an activity has its assigned worker
+            else:
+                ex.entities[subject].refs.add(target)   # a worker belongs to a farm; an application to a field
+        return []
+    # "provide crop lifecycle tracking from planting to harvesting" -> crop states planted -> harvested
+    m = re.search(r"\b(?:lifecycle|life cycle|life-cycle|progress|workflow)\b.*?\bfrom\s+([a-z]+)\s+to\s+([a-z]+)", low)
+    if m:
+        target = None
+        before = low[:m.start()]
+        for word in reversed(_words(before + " " + low[m.start():m.end()])):
+            target = ex.add_entity(word, source, allow_new=False)
+            if target:
+                break
+        target = target or (context[0] if context else None)
+        if target:
+            ex.set_statuses(target, [_state_of(m.group(1)), _state_of(m.group(2))], source)
+        return []
+    return None
+
+
+def _state_of(word: str) -> str:
+    """'planting' -> planted, 'harvesting' -> harvested, 'admission' -> admitted."""
+    verb = _nominal_to_verb(word)
+    if verb in lex.VERB_STATES:
+        return lex.VERB_STATES[verb]
+    base = re.sub(r"ing$", "", word.lower())
+    return base + ("d" if base.endswith("e") else "ed")
 
 
 def _rules_from_sentence(ex: Extraction, sentence: str, context: List[str], source: str) -> None:
@@ -959,6 +1207,17 @@ def _nominal_to_verb(word: str) -> str:
 
 def _roles(ex: Extraction, blocks: List[Block]) -> None:
     for b in blocks:
+        if b.kind == "role" and b.is_section:  # "13. User Roles" followed by "Admin: Full access" lines
+            for line in b.raw_items or b.body:
+                head, _, rest = line.partition(":")
+                words = _clean_phrase(head)
+                if not rest or not words or len(words) > 3:
+                    continue
+                role = to_snake(_singular_phrase(words))
+                role = "admin" if role in ("administrator", "admin") else role
+                is_admin = role == "admin" or bool(re.search(r"\bfull (?:system |application )?access\b", rest, re.I))
+                ex.roles[role] = {"description": rest.strip()[:200], "is_admin": is_admin, "mentions": rest}
+            continue
         if b.kind != "role" or not b.title:
             continue
         words = _clean_phrase(b.title)
@@ -1024,11 +1283,26 @@ def extract_spec(prompt: str) -> PMOutput:
         head = re.split(r"\b(?:with|for|to|that|including|so)\b", title, maxsplit=1, flags=re.I)[0]
         return [w for w in _clean_phrase(head) if w not in MODULE_SUFFIXES and w not in IMPERATIVE_WORDS]
 
-    def add_module(title: str, module_entities: List[str], description: str, source: str) -> None:
+    def add_module(title: str, module_entities: List[str], description: str, source: str) -> Optional[ModuleSpec]:
         words = title_words_of(title) if title else []
         mkey = to_snake(" ".join(words)) if words else to_snake(" ".join(module_entities))
-        if not module_entities or not mkey or mkey in seen_module_keys:
-            return
+        if not module_entities or not mkey:
+            return None
+        if mkey in seen_module_keys:
+            return next((m for m in ex.modules if m.key == mkey), None)
+        # a numbered section ("3. Farm Management") details a module the overview already listed ("manage farms, ...")
+        overview = next((m for m in ex.modules if m.entities and m.entities[0] == module_entities[0]
+                         and m.source and not m.description), None)
+        if overview is not None:
+            seen_module_keys.add(mkey)
+            for key in module_entities[1:]:
+                if key not in overview.entities:
+                    overview.entities.append(key)
+            if len(overview.entities) > 1:
+                overview.label = _module_label(ex, words, overview.entities)
+            overview.name = re.sub(r"^\d+[.)]\s*", "", title.strip().rstrip(".:")) or overview.name
+            overview.description = description[:300]
+            return overview
         seen_module_keys.add(mkey)
         if re.search(r"\bworkflows?\b", title, re.I):  # "Admission and Discharge workflows" -> Admissions
             label = " & ".join(humanize(pluralize(k)).capitalize() for k in module_entities[:3])
@@ -1040,6 +1314,7 @@ def extract_spec(prompt: str) -> PMOutput:
         ex.modules.append(ModuleSpec(key=mkey, name=(name[:1].upper() + name[1:]) or label, label=label,
                                      entities=list(module_entities), description=description[:300], source=source[:300]))
         ex.trace_item("module", title or label, [to_pascal(e) for e in module_entities], source)
+        return ex.modules[-1]
 
     dash_ctx = False
     last_section: Optional[str] = None
@@ -1059,9 +1334,17 @@ def extract_spec(prompt: str) -> PMOutput:
             continue
         title = b.title
         module_entities: List[str] = []
+        current_module: Optional[ModuleSpec] = None
+        title_entities: List[str] = []
+        before_fields: Set[str] = set()
+        before_refs: Set[str] = set()
         if title and usable(title) and not is_design_sentence(title):
             _, module_entities, status_hint = _module_title_entities(ex, title, title)
-            add_module(title, module_entities, " ".join(b.body), title)
+            title_entities = list(module_entities)
+            if title_entities:
+                before_fields = set(ex.entities[title_entities[0]].fields)
+                before_refs = set(ex.entities[title_entities[0]].refs)
+            current_module = add_module(title, module_entities, " ".join(b.body + [n for _, n in b.noun_items]), title)
             if status_hint and module_entities:
                 for key in module_entities:
                     ex.set_statuses(key, _split_list(status_hint), title)
@@ -1074,8 +1357,8 @@ def extract_spec(prompt: str) -> PMOutput:
                 ex.wants_dashboard = True
                 if not re.match(r"^\s*(?:build|create|make|develop|generate|design)\b", sentence, re.I):
                     dash_ctx = True  # "Redesign the dashboard ... Display patient count, ..."
-                    if "," in sentence or re.search(r"\band\b", sentence) or re.search(
-                            r"\b(?:display|show|shows|include|includes|list)\b", sentence, re.I):
+                    if re.search(r"\b(?:display|displays|show|shows|include|includes|list|lists|contain|contains|"
+                                 r"highlight|highlights|present|feature)\b", sentence, re.I):
                         ex.metric_phrases.append(sentence)
                     continue
             elif dash_ctx and re.match(r"^\s*(?:display|show|include|add|list|highlight|present|feature)\b", sentence, re.I):
@@ -1096,8 +1379,10 @@ def extract_spec(prompt: str) -> PMOutput:
             for key in touched:
                 if key not in module_entities and title:
                     module_entities.append(key)
-                    if ex.modules and ex.modules[-1].source == title and key not in ex.modules[-1].entities:
-                        ex.modules[-1].entities.append(key)
+                    if current_module is not None and key not in current_module.entities:
+                        current_module.entities.append(key)
+                    elif current_module is None and module_entities and module_entities[0] == key:
+                        current_module = add_module(title, module_entities, " ".join(b.body), title)
             _rules_from_sentence(ex, sentence, module_entities, sentence)
             _workflow_states(ex, sentence, module_entities, sentence)
             # "Include Cardiology, Neurology, ..." -> seed records of the module's entity
@@ -1136,6 +1421,20 @@ def extract_spec(prompt: str) -> PMOutput:
                         ex.modules.append(ModuleSpec(key=key, name=user_label, label=user_label, entities=[key],
                                                      source=sentence[:200]))
                         ex.trace_item("module", item, [to_pascal(key)], item)
+
+        if b.noun_items and b.kind == "module":
+            _noun_items(ex, b, module_entities, current_module)
+        siblings = [k for k in title_entities if k in ex.entities]
+        if len(siblings) >= 2 and not any(_event_like(k) for k in siblings):
+            first = ex.entities[siblings[0]]
+            for other in siblings[1:]:
+                target = ex.entities[other]
+                for name, fd in first.fields.items():
+                    if name not in before_fields and name not in target.fields:
+                        target.fields[name] = FieldDraft(**{**fd.__dict__})
+                for ref in first.refs - before_refs:
+                    if ref != other:
+                        target.refs.add(ref)
 
     # the domain noun itself can be the main record ("task management application" -> tasks)
     domain_head = ex.domain_words[-1] if ex.domain_words else ""
@@ -1258,8 +1557,24 @@ def _prompt_driven_adjustments(ex: Extraction) -> None:
                 status = ent.fields.get("status")
                 if status is not None and not status.explicit and {"shipped", "delivered"} & set(status.values):
                     status.values = ent.statuses = ["pending", "confirmed", "completed", "cancelled"]
+    # every event record has a date ("irrigation" records, "sales")
+    for key, ent in entities.items():
+        if _event_like(key) and not any(f.type in ("date", "datetime") for f in ent.fields.values()):
+            name = f"{key.split('_')[-1]}_date"
+            ent.fields[name] = FieldDraft(name, "date", label=humanize(name).capitalize(), explicit=False)
     # I. dashboard asks that need data the records do not have yet
     asks = " ".join(ex.metric_phrases).lower()
+    for phrase in ex.metric_phrases:
+        words = _clean_phrase(phrase)
+        if not set(words) & ACTIVE_WORDS:
+            continue
+        key = next((k for w in words for k in [ex.resolve([w], allow_new=False) or _entity_by_head(ex, w)] if k), None)
+        ent = entities.get(key) if key else None
+        if ent is not None and "status" not in ent.fields:
+            ent.fields["status"] = FieldDraft("status", "enum", values=["active", "inactive"], required=True, label="Status")
+            ent.statuses = ["active", "inactive"]
+            ex.ambiguities.append(f"An active/inactive status was added to {humanize(key)} for the requested "
+                                  f"'{' '.join(words)}' figure.")
     for m in re.finditer(r"\bactive\s+([a-z]+(?:\s+[a-z]+)?)", asks):
         key = ex.resolve(_clean_phrase(m.group(1)), allow_new=False) or _entity_by_head(ex, m.group(1))
         ent = entities.get(key) if key else None
@@ -1312,9 +1627,11 @@ def _assemble(ex: Extraction, project_name: str, app_type: str) -> PMOutput:
                 ent.fields[name] = fd
             if not explicit:
                 ex.ambiguities.append(f"No attributes were specified for {humanize(key)}; typical attributes were used.")
-        elif not explicit and not ent.refs:
+        elif not explicit:
             if _event_like(key):
                 ent.fields.setdefault(f"{key.split('_')[-1]}_date", FieldDraft(f"{key.split('_')[-1]}_date", "date", required=True, label="Date", explicit=False))
+                if key.split("_")[-1] in ("usage", "consumption", "reading"):
+                    ent.fields.setdefault("quantity", FieldDraft("quantity", "float", min_value=0, label="Quantity", explicit=False))
                 ent.fields.setdefault("notes", FieldDraft("notes", "text", searchable=True, label="Notes", explicit=False))
             elif _is_person_noun(key.split("_")[-1]):
                 ent.fields.setdefault("name", FieldDraft("name", "string", required=True, searchable=True, label="Name", explicit=False))
@@ -1445,16 +1762,26 @@ def _assemble(ex: Extraction, project_name: str, app_type: str) -> PMOutput:
         mentions = info.get("mentions", "").lower()
         mentioned: Dict[str, Set[str]] = {}
         if mentions and not role.is_admin:
-            for clause in re.split(r"[,;]|\band\b", mentions):
-                actions: Set[str] = set()
-                for pattern, acts in ROLE_ACTION_WORDS:
-                    if pattern.search(clause):
-                        actions |= acts
-                for key in entities:
-                    names = {humanize(key), humanize(pluralize(key)), key.split("_")[-1], pluralize(key.split("_")[-1])}
-                    alias = {v[0] for k, v in lex.MODULE_RECORDS.items() if re.search(rf"\b{re.escape(k.replace('_', ' '))}\b", clause)}
-                    if key in alias or any(re.search(rf"\b{re.escape(n)}\b", clause) for n in names):
-                        mentioned.setdefault(key, set()).update(actions or {"read", "update"})
+            carried: Set[str] = set()
+            for sentence_part in re.split(r"[.;]", mentions):
+                carried = set()
+                for clause in re.split(r",|\band\b", sentence_part):
+                    actions: Set[str] = set()
+                    for pattern, acts in ROLE_ACTION_WORDS:
+                        if pattern.search(clause):
+                            actions |= acts
+                    actions = actions or carried  # "Manage farms, crops, workers, and activities"
+                    carried = actions
+                    rest = clause
+                    for key in sorted(entities, key=lambda k: -len(humanize(k))):
+                        names = sorted({humanize(key).lower(), humanize(pluralize(key)).lower(), key.split("_")[-1],
+                                        pluralize(key.split("_")[-1])}, key=len, reverse=True)
+                        alias = {v[0] for k, v in lex.MODULE_RECORDS.items() if re.search(rf"\b{re.escape(k.replace('_', ' '))}\b", rest)}
+                        hit = next((n for n in names if re.search(rf"\b{re.escape(n)}\b", rest)), None)
+                        if key in alias or hit:
+                            mentioned.setdefault(key, set()).update(actions or {"read", "update"})
+                            if hit:
+                                rest = re.sub(rf"\b{re.escape(hit)}\b", " ", rest)  # "field activities" is not "field"
                         # verbs of a different word form: "admission" -> admissions
                 for word in _words(clause):
                     verb = _nominal_to_verb(word)
@@ -1578,6 +1905,7 @@ def _metric_drafts(ex: Extraction) -> List[DashboardMetric]:
     for s in ex.metric_phrases:
         body = re.sub(r"^.*?\b(?:display|displays|show|shows|include|includes|with|showing|displaying|list|lists|highlight|highlights|contain|contains)\s+",
                       "", s, count=1, flags=re.I | re.S)
+        body = re.sub(r"\bprofit and loss\b", "profit-loss", body, flags=re.I)
         body = re.sub(r"\s+(?:the\s+)?dashboard\b.*$", "", body, flags=re.I) if re.match(r"^.*\bdashboard\b", s, re.I) and \
             not re.search(r"\b(?:on|in)\s+the\s+dashboard\b", body, re.I) else body
         phrases.extend(_split_list(re.sub(r"\b(?:on|in)\s+the\s+dashboard\b", "", body, flags=re.I)))

@@ -168,14 +168,15 @@ def render_rule_tests(bp: Blueprint) -> Optional[str]:
                 f"    assert ok[{_q(end)}] is not None",
                 "",
             ]
-        for target, left, right in cfg["computed"]:
+        for target, left, right, op in cfg["computed"]:
+            first, after = (4000, 1000) if op == "multiply" else (60, 0)
             blocks += [
                 "",
                 f"def test_{e.snake}_{target}_is_computed(client, {_args(creator, 'admin_headers')}):",
                 f"    created = factories.{mk}(client, {creator}, admin_headers, {left}=100, {right}=40)",
-                f"    assert abs(created[{_q(target)}] - 60) < 0.001",
-                f"    updated = client.put(f\"{e.api_path}/{{created['id']}}\", json={{{_q(right)}: 100}}, headers={creator}).json()",
-                f"    assert abs(updated[{_q(target)}]) < 0.001",
+                f"    assert abs(created[{_q(target)}] - {first}) < 0.001",
+                f"    updated = client.put(f\"{e.api_path}/{{created['id']}}\", json={{{_q(right)}: {10 if op == 'multiply' else 100}}}, headers={creator}).json()",
+                f"    assert abs(updated[{_q(target)}] - {after}) < 0.001",
                 "",
             ]
         for fields, _status_field, _ignored, _message in cfg["unique"]:
