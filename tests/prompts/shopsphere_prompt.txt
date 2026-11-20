@@ -1,0 +1,16 @@
+Build a modern e-commerce website called ShopSphere.
+
+Features:
+- Attractive storefront homepage with a promotional hero banner.
+- Product categories and featured products.
+- Product search, sorting and filtering.
+- Product detail pages with images, prices, ratings and descriptions.
+- Shopping cart with add, remove and quantity controls.
+- Checkout and order history.
+- User registration, login and authentication.
+
+Design:
+Use a premium modern shopping website design. Use a light background, elegant typography, attractive product photography, clean spacing, polished navigation and responsive layouts. Do not use a generic admin dashboard as the storefront.
+
+Technology:
+React frontend, FastAPI backend and PostgreSQL database. Implement REST APIs, database models, authentication and CRUD operations. Connect the frontend to the backend.

@@ -1,0 +1,187 @@
+Build a complete full-stack web application called AgriTrack – Smart Farm Management System.
+The application should help farmers and agricultural businesses manage farms, crops, field activities, workers, equipment, irrigation, harvests, and sales.
+1. UI and Design
+Create a modern, professional agricultural SaaS dashboard.
+
+* Use an earthy green, white, and light beige color palette.
+* Create a collapsible sidebar and top navigation bar.
+* Use clean cards, charts, tables, icons, and responsive layouts.
+* Provide desktop, tablet, and mobile support.
+* Use relevant agricultural icons and visual indicators.
+
+2. Dashboard
+Display:
+
+* Total farms.
+* Total cultivated land.
+* Active crops.
+* Workers currently employed.
+* Equipment in use.
+* Upcoming harvests.
+* Monthly expenses.
+* Total sales revenue.
+
+Include:
+
+* Crop production chart.
+* Monthly revenue and expense chart.
+* Farm-wise crop distribution.
+* Upcoming farm activities.
+* Recent alerts and notifications.
+
+3. Farm Management
+Allow users to:
+
+* Register farms.
+* Enter farm name, location, area, soil type, and ownership details.
+* Divide farms into individual fields.
+* View field boundaries and cultivation status.
+* Track farm activities and production history.
+
+4. Crop Management
+Manage:
+
+* Crop name.
+* Crop variety.
+* Planting date.
+* Expected harvest date.
+* Field assignment.
+* Seed quantity.
+* Growth stage.
+* Crop health status.
+* Expected production.
+
+Provide crop lifecycle tracking from planting to harvesting.
+5. Irrigation Management
+
+* Register irrigation systems.
+* Track water usage.
+* Schedule irrigation activities.
+* Record irrigation history.
+* Monitor water availability.
+* Generate water consumption reports.
+
+6. Worker Management
+
+* Register farm workers.
+* Maintain employee profiles.
+* Assign workers to farms and activities.
+* Track attendance.
+* Manage work schedules.
+* Calculate wages and payments.
+
+7. Equipment Management
+Manage tractors, harvesters, pumps, and other agricultural equipment.
+Include:
+
+* Equipment name.
+* Equipment category.
+* Registration number.
+* Purchase date.
+* Maintenance history.
+* Operating status.
+* Next service date.
+* Maintenance expenses.
+
+8. Fertilizer and Pesticide Management
+
+* Maintain fertilizer and pesticide records.
+* Track product quantities.
+* Record application dates.
+* Assign applications to specific fields and crops.
+* Track stock levels and expiry dates.
+* Generate usage reports.
+
+9. Harvest Management
+
+* Record harvested crops.
+* Select farm and field.
+* Enter harvest date.
+* Record harvested quantity.
+* Track quality grade.
+* Record storage location.
+* Maintain harvest history.
+
+10. Sales and Orders
+
+* Register buyers.
+* Create crop sales orders.
+* Track crop quantities and prices.
+* Record delivery information.
+* Manage payment status.
+* Generate sales invoices.
+
+11. Financial Management
+Track:
+
+* Seed expenses.
+* Fertilizer expenses.
+* Worker wages.
+* Equipment maintenance costs.
+* Irrigation expenses.
+* Transportation expenses.
+* Crop sales revenue.
+* Profit and loss.
+
+Generate monthly and yearly financial reports.
+12. Reports and Analytics
+Create reports for:
+
+* Crop production.
+* Farm performance.
+* Worker attendance.
+* Equipment utilization.
+* Water consumption.
+* Fertilizer usage.
+* Harvest quantities.
+* Sales and expenses.
+
+Include date filters and CSV export.
+13. User Roles
+Implement:
+
+* Admin: Full application access.
+* Farm Manager: Manage farms, crops, workers, and activities.
+* Field Supervisor: Update field activities and crop progress.
+* Accountant: Manage expenses, payments, and sales.
+* Worker: View assigned activities and work schedules.
+
+Enforce permissions through backend APIs.
+14. Technical Requirements
+Frontend:
+
+* React.
+* TypeScript.
+* Vite.
+* Tailwind CSS.
+* React Router.
+* Recharts.
+* Lucide React.
+
+Backend:
+
+* Python FastAPI.
+* SQLAlchemy.
+* Pydantic.
+* REST APIs.
+
+Database:
+
+* PostgreSQL, with SQLite support for local testing if appropriate.
+
+Implement authentication, validation, database relationships, error handling, and CRUD operations.
+15. Functional Requirements
+
+* All sidebar navigation must work.
+* All forms must save data through backend APIs.
+* Dashboard statistics must reflect actual database records.
+* Search, filtering, and sorting must work.
+* Related records must be connected correctly.
+* Include realistic synthetic demo data.
+* Avoid nonfunctional buttons and placeholder pages.
+* Include loading, success, error, and empty states.
+* Start the generated application locally and verify its preview.
+
+Final Requirement
+Generate a complete working Smart Agriculture Management System.
+Do not reuse unrelated modules or default application structures from previous projects. Derive the navigation, database entities, pages, workflows, and dashboard from this application's actual requirements.

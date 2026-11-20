@@ -1,0 +1,13 @@
+# FORGE AI platform (Python 3.11+)
+fastapi>=0.110.0
+uvicorn>=0.27.0
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+sqlalchemy>=2.0.0
+httpx>=0.27.0
+pytest>=8.0.0
+pyyaml>=6.0
+# LLM provider used by the PM and UI agents when USE_LLM=true
+google-generativeai>=0.8.0
+# Lets generated applications run against PostgreSQL with the platform interpreter
+psycopg2-binary>=2.9.0

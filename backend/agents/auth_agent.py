@@ -1,258 +1,73 @@
-"""Authentication Agent for FORGE AI platform."""
+"""Authentication Agent: registration, login, password hashing, JWT and role-based access control.
 
-import json
-from typing import Dict, Any, Optional, List
-from pathlib import Path
+Inputs: requirements (PM), API contract (Backend) and database schema (DB).
+Output: ``auth_spec.json`` (AuthOutput) + ``backend/app/security.py``, auth/user routers, seed and the
+frontend auth context/pages. The RBAC matrix is derived from the permissions each endpoint declares.
+"""
+
+from typing import Any, Dict, List, Optional
 
 from backend.agents.base_agent import BaseAgent
-from backend.schemas.pm_schema import PMOutput
+from backend.artifacts.artifact_context import ArtifactContext
+from backend.codegen.auth_writer import build_auth_spec, write_auth_files
+from backend.codegen.blueprint import build_blueprint
+from backend.exceptions import GenerationError, ValidationError
+from backend.schemas.auth_schema import AuthOutput
 from backend.schemas.backend_schema import BackendOutput
 from backend.schemas.db_schema import DBOutput
-from backend.schemas.auth_schema import AuthOutput
-from backend.exceptions import MissingInputError, ValidationError, GenerationError
+from backend.schemas.pm_schema import PMOutput
+
+AGENT = "auth"
+REQUIRED_USER_COLUMNS = {"id", "email", "hashed_password", "role", "is_active"}
 
 
 class AuthAgent(BaseAgent[AuthOutput]):
-    """Agent responsible for generating JWT, Bcrypt, RBAC, and Auth Workflow specifications."""
+    stage_name = AGENT
 
-    def __init__(self,
-                 pm_output_path: str = "outputs/pm_output.json",
-                 backend_output_path: str = "outputs/backend_output.json",
-                 db_output_path: str = "outputs/db_output.json",
-                 output_filepath: str = "outputs/auth_output.json"):
-        super().__init__(output_schema_cls=AuthOutput, output_filepath=output_filepath)
+    def __init__(
+        self,
+        pm_output_path: str = "outputs/pm_output.json",
+        backend_output_path: str = "outputs/backend_output.json",
+        db_output_path: str = "outputs/db_output.json",
+        output_filepath: str = "outputs/auth_output.json",
+        artifact_context: Optional[ArtifactContext] = None,
+        project: Optional[Any] = None,
+        log_fn=None,
+    ):
+        super().__init__(output_schema_cls=AuthOutput, output_filepath=output_filepath,
+                         artifact_context=artifact_context, project=project, log_fn=log_fn)
         self.pm_output_path = pm_output_path
         self.backend_output_path = backend_output_path
         self.db_output_path = db_output_path
         self.pm_data: Optional[PMOutput] = None
         self.backend_data: Optional[BackendOutput] = None
         self.db_data: Optional[DBOutput] = None
+        self.api_spec: Dict[str, Any] = {}
 
     def load_inputs(self) -> None:
-        """Load and validate PM, Backend, and DB specifications."""
-        raw_pm = self.read_json_file(self.pm_output_path)
-        try:
-            self.pm_data = PMOutput.model_validate(raw_pm)
-        except Exception as e:
-            raise ValidationError(f"Invalid pm_output.json format: {e}")
-
-        raw_backend = self.read_json_file(self.backend_output_path)
-        try:
-            self.backend_data = BackendOutput.model_validate(raw_backend)
-        except Exception as e:
-            raise ValidationError(f"Invalid backend_output.json format: {e}")
-
-        raw_db = self.read_json_file(self.db_output_path)
-        try:
-            self.db_data = DBOutput.model_validate(raw_db)
-        except Exception as e:
-            raise ValidationError(f"Invalid db_output.json format: {e}")
+        self.pm_data = self.load_upstream("pm", PMOutput, self.pm_output_path)
+        self.backend_data = self.load_upstream("backend", BackendOutput, self.backend_output_path)
+        self.db_data = self.load_upstream("db", DBOutput, self.db_output_path, optional=True)
 
     def generate(self) -> Dict[str, Any]:
-        """Generate Authentication specification using LLM or rule-based fallback."""
-        if not self.pm_data or not self.backend_data or not self.db_data:
+        if not self.pm_data or not self.backend_data:
             raise GenerationError("Inputs not loaded. Call load_inputs() first.")
+        bp = build_blueprint(self.pm_data)
+        if self.db_data is not None:
+            users = next((t for t in self.db_data.tables if t.model_name == "User"), None)
+            if users is None:
+                raise ValidationError("Database schema has no User table; authentication cannot be implemented")
+            missing = REQUIRED_USER_COLUMNS - {c.name for c in users.columns}
+            if missing:
+                raise ValidationError(f"User table lacks security columns: {', '.join(sorted(missing))}")
+        self.api_spec = self.backend_data.model_dump()
+        unknown_roles = {r for ep in self.api_spec["endpoints"] for r in ep.get("required_roles", [])} - set(bp.roles)
+        if unknown_roles:
+            raise ValidationError(f"API contract references undefined roles: {', '.join(sorted(unknown_roles))}")
+        spec = build_auth_spec(bp, self.api_spec)
+        roles = ", ".join("%s (%d permissions)" % (r["role_name"], len(r["permissions"])) for r in spec["rbac_roles"])
+        self.log(f"RBAC: {roles}; {len(spec['protected_endpoints'])} protected endpoints; PBKDF2-SHA256 + HS256 JWT")
+        return spec
 
-        model = self.get_gemini_model()
-        if model:
-            try:
-                prompt = self._build_prompt()
-                response = model.generate_content(prompt)
-                text = response.text.strip()
-                if text.startswith("```json"):
-                    text = text[7:]
-                if text.endswith("```"):
-                    text = text[:-3]
-                text = text.strip()
-                parsed = json.loads(text)
-                AuthOutput.model_validate(parsed)
-                return parsed
-            except Exception as e:
-                self.logger.warning(f"LLM generation failed or returned invalid schema ({e}). Falling back to dynamic rule generator.")
-
-        return self._generate_fallback()
-
-    def _build_prompt(self) -> str:
-        """Build structured LLM prompt for authentication spec generation."""
-        return f"""
-You are a Senior Security Engineer and Auth Architect AI.
-Generate a JWT + Bcrypt Authentication specification JSON for the project '{self.pm_data.project_name}'.
-
-STRICT RULES:
-- Return ONLY valid raw JSON. No markdown formatting.
-- Password MUST NEVER be stored in plain text.
-- Output MUST conform to AuthOutput schema.
-"""
-
-    def _generate_fallback(self) -> Dict[str, Any]:
-        """Dynamic rule-based generator for JWT, Bcrypt, RBAC, Security Middlewares, and Workflows."""
-        project_name = self.pm_data.project_name
-
-        # Protected endpoints extraction from backend output
-        protected_endpoints: List[Dict[str, Any]] = []
-        if self.backend_data:
-            for ep in self.backend_data.endpoints:
-                if ep.requires_auth:
-                    protected_endpoints.append({
-                        "path": ep.path,
-                        "method": ep.method,
-                        "required_roles": ep.required_roles or ["user"],
-                        "required_permissions": [f"{ep.method.lower()}:{ep.tags[0].lower() if ep.tags else 'resource'}"]
-                    })
-
-        return {
-            "project_name": project_name,
-            "password_security": {
-                "hashing_algorithm": "bcrypt",
-                "bcrypt_rounds": 12,
-                "min_length": 8,
-                "require_uppercase": True,
-                "require_lowercase": True,
-                "require_digit": True,
-                "require_special_char": True
-            },
-            "jwt_strategy": {
-                "algorithm": "HS256",
-                "access_token_expire_minutes": 30,
-                "refresh_token_expire_days": 7,
-                "secret_key_env_var": "JWT_SECRET_KEY",
-                "token_type": "Bearer",
-                "claims": ["sub", "exp", "iat", "role", "email"]
-            },
-            "auth_endpoints": [
-                {
-                    "name": "register",
-                    "path": "/api/auth/register",
-                    "method": "POST",
-                    "description": "User registration flow creating new user account with hashed password.",
-                    "requires_authentication": False,
-                    "request_fields": ["email", "username", "password"],
-                    "response_fields": ["id", "email", "username", "role", "created_at"]
-                },
-                {
-                    "name": "login",
-                    "path": "/api/auth/login",
-                    "method": "POST",
-                    "description": "User login flow verifying credentials and issuing JWT access & refresh tokens.",
-                    "requires_authentication": False,
-                    "request_fields": ["email", "password"],
-                    "response_fields": ["access_token", "refresh_token", "token_type", "expires_in"]
-                },
-                {
-                    "name": "refresh_token",
-                    "path": "/api/auth/refresh",
-                    "method": "POST",
-                    "description": "Refresh token endpoint issuing new access token upon valid refresh token.",
-                    "requires_authentication": False,
-                    "request_fields": ["refresh_token"],
-                    "response_fields": ["access_token", "token_type", "expires_in"]
-                },
-                {
-                    "name": "logout",
-                    "path": "/api/auth/logout",
-                    "method": "POST",
-                    "description": "Logout endpoint revoking / blacklisting active access & refresh tokens.",
-                    "requires_authentication": True,
-                    "request_fields": [],
-                    "response_fields": ["message"]
-                },
-                {
-                    "name": "forgot_password",
-                    "path": "/api/auth/forgot-password",
-                    "method": "POST",
-                    "description": "Request password reset email containing secure reset token.",
-                    "requires_authentication": False,
-                    "request_fields": ["email"],
-                    "response_fields": ["message"]
-                },
-                {
-                    "name": "reset_password",
-                    "path": "/api/auth/reset-password",
-                    "method": "POST",
-                    "description": "Reset password using valid reset token.",
-                    "requires_authentication": False,
-                    "request_fields": ["token", "new_password"],
-                    "response_fields": ["message"]
-                },
-                {
-                    "name": "verify_email",
-                    "path": "/api/auth/verify-email",
-                    "method": "GET",
-                    "description": "Verify email address using token sent via email.",
-                    "requires_authentication": False,
-                    "request_fields": ["token"],
-                    "response_fields": ["message"]
-                }
-            ],
-            "rbac_roles": [
-                {
-                    "role_name": "Admin",
-                    "description": "System Administrator with full management permissions.",
-                    "permissions": ["read:all", "write:all", "delete:all", "manage:users", "manage:roles"]
-                },
-                {
-                    "role_name": "User",
-                    "description": "Standard registered user with access to application features.",
-                    "permissions": ["read:own", "write:own", "delete:own"]
-                },
-                {
-                    "role_name": "Guest",
-                    "description": "Unauthenticated guest with read-only public access.",
-                    "permissions": ["read:public"]
-                }
-            ],
-            "user_entity_requirements": {
-                "required_fields": [
-                    {"name": "id", "type": "INTEGER", "description": "Primary key"},
-                    {"name": "email", "type": "VARCHAR(255)", "description": "Unique email address"},
-                    {"name": "hashed_password", "type": "VARCHAR(255)", "description": "Bcrypt hashed password"},
-                    {"name": "role", "type": "VARCHAR(50)", "description": "User RBAC role"},
-                    {"name": "is_active", "type": "BOOLEAN", "description": "Account active flag"},
-                    {"name": "is_superuser", "type": "BOOLEAN", "description": "Superuser flag"},
-                    {"name": "email_verified", "type": "BOOLEAN", "description": "Email verification status"},
-                    {"name": "created_at", "type": "TIMESTAMP", "description": "Account creation timestamp"}
-                ]
-            },
-            "protected_endpoints": protected_endpoints,
-            "security_middlewares": [
-                {
-                    "name": "CORSMiddleware",
-                    "description": "Controls allowed HTTP origins, methods, and credentials.",
-                    "configuration": {"allow_origins": ["*"], "allow_credentials": True, "allow_methods": ["*"], "allow_headers": ["*"]}
-                },
-                {
-                    "name": "RateLimitingMiddleware",
-                    "description": "Limits API request rate per client IP to prevent brute-force attacks.",
-                    "configuration": {"requests_per_minute": 60, "burst": 100}
-                },
-                {
-                    "name": "SecurityHeadersMiddleware",
-                    "description": "Adds standard HTTP security headers.",
-                    "configuration": {
-                        "X-Content-Type-Options": "nosniff",
-                        "X-Frame-Options": "DENY",
-                        "X-XSS-Protection": "1; mode=block",
-                        "Strict-Transport-Security": "max-age=31536000; includeSubDomains"
-                    }
-                }
-            ],
-            "password_reset_workflow": {
-                "step_1": "User submits email to /api/auth/forgot-password.",
-                "step_2": "System generates short-lived secure JWT reset token (15 min expiry).",
-                "step_3": "System dispatches password reset email with action URL containing token.",
-                "step_4": "User submits new password and token to /api/auth/reset-password.",
-                "step_5": "System validates token, hashes new password with bcrypt, updates user DB record, and invalidates reset token."
-            },
-            "email_verification_workflow": {
-                "step_1": "Upon registration, user account is created with email_verified = False.",
-                "step_2": "System generates email verification token (24 hour expiry).",
-                "step_3": "System dispatches email containing verification link.",
-                "step_4": "User clicks verification link triggering GET /api/auth/verify-email?token=...",
-                "step_5": "System validates token and sets email_verified = True."
-            }
-        }
-
-
-if __name__ == "__main__":
-    agent = AuthAgent()
-    agent.run()
+    def emit_code(self, output: AuthOutput) -> List[str]:
+        return write_auth_files(build_blueprint(self.pm_data), self.project, self.api_spec)

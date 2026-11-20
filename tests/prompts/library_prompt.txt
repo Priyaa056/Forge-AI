@@ -1,0 +1,24 @@
+Build a Library Management System named "BookNest" for a community library.
+
+Modules:
+1. Book Catalog
+   - Add books with title, author, ISBN, genre, publication year, and number of copies.
+   - Track available, borrowed, and lost books.
+2. Member Management
+   - Register members with name, email, phone, and membership type.
+3. Loans
+   - Issue loans by selecting a member, book, loan date, and due date.
+   - Prevent duplicate loans for the same member and book.
+   - Show overdue loans.
+4. Fines
+   - Record fines with amount, paid amount, and reason.
+5. Reports
+   - Monthly loan reports with date filters.
+
+User Roles:
+- Admin: Full system access.
+- Librarian: Book catalog management and loan management.
+- Member: View books.
+
+Dashboard: display total books, borrowed books, overdue loans, and recent activity.
+Use a dark green sidebar and include realistic sample data.

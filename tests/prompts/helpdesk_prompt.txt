@@ -1,0 +1,18 @@
+Build an IT Help Desk application called "FixIt Desk" for a mid-size company.
+
+1. Ticket Management
+   - Employees submit tickets with title, description, category, and priority.
+   - Track open, in progress, resolved, and closed tickets.
+   - Show overdue tickets based on the due date.
+2. Asset Management
+   - Register IT assets with asset tag, type, serial number, purchase date, and assigned employee.
+3. Knowledge Base
+   - Publish articles with title, content, and tags.
+
+Roles:
+- Admin: Full system access.
+- Technician: Ticket management and asset management.
+- Employee: Submit tickets and view articles.
+
+Dashboard: display open tickets, overdue tickets, tickets by priority, and recent activity.
+Use an indigo accent color.
