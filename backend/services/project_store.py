@@ -169,6 +169,13 @@ class ProjectStore:
         data["updated_at"] = _now()
         _write_json(self.project_dir(data["project_id"]) / "project.json", data)
 
+    def set_github_link(self, project_id: str, link: Dict[str, Any]) -> None:
+        """Remember the GitHub repository the project was last pushed to (never a token)."""
+        with self._lock(project_id):
+            project = self.load_project(project_id)
+            project["github"] = link
+            self.save_project(project)
+
     def list_projects(self, owner_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """List projects; with ``owner_id`` only that user's projects are returned."""
         items = []

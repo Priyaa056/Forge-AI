@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, Download, FlaskConical, Loader2, Sparkles } from "lucide-react";
+import { ChevronLeft, Download, FlaskConical, Github, Loader2, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { btnGhost } from "@/components/brand";
 import { ActivityFeed } from "@/components/app/ActivityFeed";
 import { AgentPipeline } from "@/components/app/AgentPipeline";
 import { ArtifactDialog } from "@/components/app/ArtifactDialog";
 import { FilesPanel } from "@/components/app/FilesPanel";
+import { GitHubPushDialog } from "@/components/app/GitHubPush";
 import { PreviewPanel } from "@/components/app/PreviewPanel";
 import { PromptForm } from "@/components/app/PromptForm";
 import { QualityPanel } from "@/components/app/QualityPanel";
@@ -22,7 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { agentByStage, formatDuration, formatWhen } from "@/lib/agents";
 import { forgeApi } from "@/lib/api/forge";
-import type { RunSummary, StageName } from "@/lib/api/types";
+import type { GitHubPushRequest, RunSummary, StageName } from "@/lib/api/types";
 
 type WorkspaceSearch = { run?: string };
 
@@ -95,6 +97,40 @@ function Workspace() {
 
   const download = useMutation({ mutationFn: () => forgeApi.downloadZip(projectId, "current") });
 
+  const [pushOpen, setPushOpen] = useState(false);
+  const githubPush = useMutation({
+    mutationFn: (body: GitHubPushRequest) => forgeApi.pushToGitHub(projectId, body),
+    gcTime: 0, // the request (with its token) is not kept once the dialog is done with it
+    onSuccess: (result) => {
+      setPushOpen(false);
+      githubPush.reset();
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success(
+        result.changed
+          ? `Pushed to ${result.full_name}`
+          : `${result.full_name} is already up to date`,
+        {
+          description: result.changed
+            ? `${result.files} files on ${result.branch} · commit ${result.commit_sha.slice(0, 7)}`
+            : "GitHub already has this version, so no commit was needed.",
+          action: {
+            label: "Open",
+            onClick: () =>
+              window.open(
+                result.changed ? result.commit_url : result.html_url,
+                "_blank",
+                "noopener,noreferrer",
+              ),
+          },
+        },
+      );
+    },
+  });
+  const closePush = () => {
+    setPushOpen(false);
+    githubPush.reset();
+  };
+
   const selectRun = (id: string) =>
     void navigate({ to: "/app/projects/$projectId", params: { projectId }, search: { run: id } });
 
@@ -152,6 +188,27 @@ function Workspace() {
           <p className="mt-2 text-sm text-muted-foreground">
             Created {formatWhen(p.created_at)} · {runs.length} build{runs.length === 1 ? "" : "s"}
           </p>
+          {p.github && (
+            <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
+              <Github className="size-3.5" />
+              <a
+                href={p.github.html_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-foreground underline-offset-2 hover:underline"
+              >
+                {p.github.full_name}
+              </a>
+              <span>
+                · v{p.github.pushed_version} pushed {formatWhen(p.github.pushed_at)}
+              </span>
+              {p.current_version && p.github.pushed_version !== p.current_version && (
+                <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-foreground">
+                  v{p.current_version} not pushed yet
+                </span>
+              )}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -175,8 +232,27 @@ function Workspace() {
             )}{" "}
             Download ZIP
           </button>
+          <button
+            type="button"
+            className={btnGhost}
+            disabled={!p.current_version}
+            title={p.current_version ? undefined : "Available once a build has a live version"}
+            onClick={() => setPushOpen(true)}
+          >
+            <Github className="size-4" /> Push to GitHub
+          </button>
         </div>
       </div>
+      <GitHubPushDialog
+        open={pushOpen}
+        projectName={name}
+        version={p.current_version}
+        link={p.github}
+        pending={githubPush.isPending}
+        error={githubPush.error?.message ?? null}
+        onCancel={closePush}
+        onSubmit={(body) => githubPush.mutate(body)}
+      />
       {download.error && (
         <div className="mt-4">
           <Alert>{download.error.message}</Alert>

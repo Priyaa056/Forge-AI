@@ -5,6 +5,8 @@ import type {
   DeployReport,
   ExecutionEvent,
   FileEntry,
+  GitHubPushRequest,
+  GitHubPushResult,
   PreviewStatus,
   ProjectDetail,
   ProjectListItem,
@@ -95,6 +97,13 @@ export const forgeApi = {
       `/api/projects/${enc(projectId)}/runs/${enc(runId)}/download`,
       `${projectId}-${runId}.zip`,
     ),
+
+  /** Pushes the live version to GitHub as one commit. The token is sent for this request only. */
+  pushToGitHub: (projectId: string, body: GitHubPushRequest) =>
+    request<GitHubPushResult>(`/api/projects/${enc(projectId)}/github/push`, {
+      method: "POST",
+      body,
+    }),
 
   // Versions
   rollback: (projectId: string, targetRunId: string, reason?: string) =>

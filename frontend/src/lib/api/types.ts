@@ -87,6 +87,46 @@ export interface ProjectDetail {
   current_run_id: string | null;
   versions: VersionEntry[];
   runs: RunListItem[];
+  /** The GitHub repository this project was last pushed to. */
+  github?: GitHubLink;
+}
+
+export interface GitHubLink {
+  full_name: string;
+  html_url: string;
+  branch: string;
+  last_commit: string;
+  commit_url: string;
+  pushed_version: number | null;
+  pushed_at: string;
+}
+
+export interface GitHubPushRequest {
+  /** Used for this push only; the platform never stores it. */
+  token: string;
+  mode: "new" | "existing";
+  /** New repository name (mode "new"). */
+  name?: string;
+  /** "owner/name" of an existing repository (mode "existing"). */
+  repository?: string;
+  private?: boolean;
+  branch?: string;
+  message?: string;
+}
+
+export interface GitHubPushResult {
+  pushed: boolean;
+  /** False when GitHub already had exactly these files (no commit was made). */
+  changed: boolean;
+  created_repository: boolean;
+  full_name: string;
+  html_url: string;
+  branch: string;
+  commit_sha: string;
+  commit_url: string;
+  files: number;
+  removed: string[];
+  github: GitHubLink;
 }
 
 export interface AgentSummary {
