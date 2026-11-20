@@ -1,6 +1,7 @@
-"""Services package for FORGE AI (pipeline orchestration, QA error mapping, failure classification, self-healing).
+"""Services package for FORGE AI (pipeline orchestration, runs, projects, previews, failure classification,
+self-healing).
 
-The pipeline is imported lazily: agents import ``backend.services.error_mapper``,
+The pipeline is imported lazily: agents import services such as ``backend.services.failure_classifier``,
 and eagerly importing the pipeline here would create a circular import.
 """
 

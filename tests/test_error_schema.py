@@ -4,7 +4,6 @@ import pytest
 from pydantic import ValidationError
 
 from backend.schemas.qa_schema import QAError, QAOutput, QAErrorDetail
-from backend.services.error_mapper import ErrorMapper, map_exception_to_qa_error
 
 
 def test_qa_error_model_valid():
@@ -37,28 +36,6 @@ def test_qa_error_model_missing_required_fields():
     """Validate QAError raises ValidationError when required fields are missing."""
     with pytest.raises(ValidationError):
         QAError(id="QA-001", type="SyntaxError")  # Missing required fields like severity, component, agent, message
-
-
-def test_error_mapper_formatting_example():
-    """Validate ErrorMapper produces the exact structure specified in task requirements."""
-    err = ImportError("Module not found")
-    qa_error = map_exception_to_qa_error(
-        err,
-        error_id="QA-001",
-        suggestion="Install dependency"
-    )
-
-    dump = qa_error.model_dump()
-    assert dump == {
-        "id": "QA-001",
-        "type": "ImportError",
-        "severity": "HIGH",
-        "component": "backend",
-        "agent": "BackendAgent",
-        "message": "Module not found",
-        "suggestion": "Install dependency",
-        "test_name": None,
-    }
 
 
 def test_qa_output_model_valid():

@@ -4,7 +4,7 @@
 
 This source export preserves the current FORGE AI landing page, robot mascot, animations, light/dark theme, and login/sign-up screens, including form validation and password visibility controls.
 
-**Current state (integrated with the FORGE AI platform API in `../backend`):** the original Lovable design is unchanged and is now the FORGE AI web app. Sign-up and log-in create and use real platform accounts. Signed-in users get a dashboard with their project history, a new-project screen, and a project workspace that shows live progress of the seven agents, the activity log, each agent's artifact, the generated source files, executed QA and deployment reports, an embedded live preview of the generated application, version history with rollback, and a ZIP download. The homepage's hero and "Generated preview" mock-ups remain illustrations. Password recovery is not implemented.
+**Current state (integrated with the FORGE AI platform API in `../backend`):** the original Lovable design is unchanged and is now the FORGE AI web app. Sign-up and log-in create and use real platform accounts. Signed-in users get a dashboard with their project history, a new-project screen, and a project workspace that shows live progress of the seven agents, the activity log, each agent's artifact, the generated source files, executed QA and deployment reports, an embedded live preview of the generated application, version history with rollback, a ZIP download and push to GitHub. Projects can be refined with plain-English change requests (with a plan preview before applying), and the dashboard shows build statistics. The homepage's hero and "Generated preview" mock-ups remain illustrations. Password recovery is not implemented.
 
 Screens added for the signed-in area (`/app`, `/app/new`, `/app/projects/$projectId`) did not exist in the Lovable export; they are composed only from the export's existing patterns (hero workspace frame, agent list with status dots, cards, buttons, form fields, tokens) so they look like the original design.
 
@@ -78,13 +78,14 @@ The FastAPI platform API lives in `../backend` (run it separately). The contract
 
 | Area | Endpoints |
 | --- | --- |
-| Accounts | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` — bearer tokens (`Authorization: Bearer …`), stored in `localStorage` under `forge-token`; a 401 signs the user out |
-| Platform | `GET /api/system` (LLM mode, toolchain, fault injection) |
-| Projects & runs | `GET/POST /api/projects`, `GET /api/projects/{id}`, `POST /api/projects/{id}/runs`, `GET …/runs/{run}` (polled every second while a build runs), `GET …/runs/{run}/events` |
-| Artifacts & reports | `GET /api/artifacts/{id}`, `GET …/runs/{run}/specs/qa`, `GET …/runs/{run}/specs/deploy` |
-| Files | `GET …/runs/{run}/files`, `GET …/runs/{run}/files/content?path=`, `GET …/runs/{run}/download` (ZIP; `run` may be `current`) |
+| Accounts | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`: bearer tokens (`Authorization: Bearer ...`), stored in `localStorage` under `forge-token`; a 401 signs the user out |
+| Platform | `GET /api/system` (generation mode, LLM provider, toolchain, fault injection), `GET /api/stats?days=` (dashboard statistics) |
+| Projects & runs | `GET/POST /api/projects`, `GET/DELETE /api/projects/{id}`, `POST /api/projects/{id}/runs` (rebuild), `GET .../runs/{run}` (polled every second while a build runs), `GET .../runs/{run}/events`, `GET /api/projects/{id}/events` |
+| Refinement | `POST /api/projects/{id}/refine/preview` (plan preview), `POST /api/projects/{id}/refine` (apply a change or an approved plan), `GET .../runs/{run}/changes` |
+| Artifacts & reports | `GET /api/artifacts/{id}`, `GET .../runs/{run}/specs/pm`, `GET .../runs/{run}/specs/qa`, `GET .../runs/{run}/specs/deploy` |
+| Files & output | `GET .../runs/{run}/files`, `GET .../runs/{run}/files/content?path=`, `GET .../runs/{run}/download` (ZIP; `run` may be `current`), `POST /api/projects/{id}/github/push` |
 | Versions | `POST /api/projects/{id}/rollback` |
-| Preview | `GET …/preview`, `POST …/preview/start`, `POST …/preview/stop` |
+| Preview | `GET .../preview`, `POST .../preview/start`, `POST .../preview/stop` |
 
 API access is kept out of the UI components: `src/lib/api/client.ts` (HTTP, token, errors), `src/lib/api/forge.ts` (typed endpoints), `src/lib/api/types.ts` (response shapes), `src/lib/auth.tsx` (session state). The API allows browser origins on `localhost` / `127.0.0.1` (any port) via CORS; no cookies are used.
 

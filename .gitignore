@@ -23,3 +23,10 @@ outputs/
 data/
 backend/data/
 *.db
+
+# Local editor/assistant settings
+.claude/
+
+# Editable sources of published docs (the repository keeps the PDF report and PNG figures)
+docs/*.docx
+docs/figures/*.svg
