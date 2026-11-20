@@ -61,7 +61,7 @@ class GeneratedAppProcess:
     def env(self) -> Dict[str, str]:
         env = dict(os.environ)
         for key in list(env):
-            if key.startswith(("GOOGLE_", "GEMINI_", "FORGE_")) or key == "USE_LLM":
+            if key.startswith(("GOOGLE_", "GEMINI_", "GROQ_", "LLM_", "FORGE_")) or key == "USE_LLM":
                 env.pop(key)  # the generated app never needs platform secrets
         db_path = (self.data_dir / "app.db").as_posix()
         env.update({

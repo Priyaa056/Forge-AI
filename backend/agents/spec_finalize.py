@@ -433,6 +433,13 @@ def _metrics(pm: PMOutput) -> List[DashboardMetric]:
         if len(words) >= 2:
             adjective = to_snake(" ".join(words[:-1]))
             target = _find_entity(pm, noun)
+            if adjective in {"overdue", "late"}:  # past their due date (the overdue rule), not only status == overdue
+                rule = next((r for r in pm.business_rules if r.kind == "overdue" and (
+                    target is None or r.entity == target.name)), None)
+                if rule:
+                    add(DashboardMetric(id="", label=label, kind="alert", entity=rule.entity, field=rule.fields[0],
+                                        params={"rule": "overdue", **rule.params}))
+                    continue
             if target and adjective in {"pending", "open", "unpaid", "outstanding", "active", "current"} and _status(target) \
                     and adjective not in _status(target).enum_values:
                 st = _status(target)

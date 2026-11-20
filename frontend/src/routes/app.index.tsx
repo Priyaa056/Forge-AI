@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Cpu, FolderGit2, Layers, Loader2, Plus, RefreshCw } from "lucide-react";
+import { ArrowRight, Loader2, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import robot from "@/assets/robot.png";
 import { btnPrimary } from "@/components/brand";
-import { DeleteProjectDialog, ProjectActionsMenu } from "@/components/app/DeleteProject";
-import { Alert, Eyebrow, RunStatusPill, btnSmall } from "@/components/app/ui";
+import { StatsOverview } from "@/components/app/DashboardStats";
+import { DeleteProjectDialog } from "@/components/app/DeleteProject";
+import { ProjectCard } from "@/components/app/ProjectCard";
+import { Alert, Eyebrow, btnSmall } from "@/components/app/ui";
 import { forgeApi } from "@/lib/api/forge";
 import type { ProjectListItem } from "@/lib/api/types";
-import { formatWhen } from "@/lib/agents";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/app/")({
@@ -41,6 +42,7 @@ function Dashboard() {
         predicate: (q) => q.queryKey[0] !== "projects" && q.queryKey.includes(project.project_id),
       });
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["stats"] });
       setToDelete(null);
       toast.success("Project deleted successfully.");
     },
@@ -50,11 +52,9 @@ function Dashboard() {
   });
 
   const list = projects.data ?? [];
-  const stable = list.filter((p) => p.current_version).length;
-  const builds = list.reduce((sum, p) => sum + p.run_count, 0);
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-12">
+    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:py-10">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <Eyebrow>Dashboard</Eyebrow>
@@ -70,20 +70,6 @@ function Dashboard() {
         </Link>
       </div>
 
-      <div className="mt-10 grid gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-3">
-        {[
-          { i: FolderGit2, t: "Projects", v: projects.data ? String(list.length) : "—" },
-          { i: Layers, t: "Builds run", v: projects.data ? String(builds) : "—" },
-          { i: Cpu, t: "Live versions", v: projects.data ? String(stable) : "—" },
-        ].map((s) => (
-          <div key={s.t} className="bg-card p-6">
-            <s.i className="size-5 text-primary" />
-            <p className="mt-4 font-display text-3xl font-bold">{s.v}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{s.t}</p>
-          </div>
-        ))}
-      </div>
-
       {system.data && !system.data.llm.llm_enabled && (
         <div className="mt-6">
           <Alert tone="info">
@@ -94,13 +80,27 @@ function Dashboard() {
         </div>
       )}
 
+      <div className="mt-8">
+        <StatsOverview />
+      </div>
+
       <section className="mt-12">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">Project history</h2>
+          <h2 className="flex items-center gap-2 text-xl font-bold">
+            Project history
+            {projects.data && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                {list.length}
+              </span>
+            )}
+          </h2>
           <button
             type="button"
             className={btnSmall}
-            onClick={() => void projects.refetch()}
+            onClick={() => {
+              void projects.refetch();
+              void queryClient.invalidateQueries({ queryKey: ["stats"] });
+            }}
             aria-label="Refresh projects"
           >
             <RefreshCw className={`size-3.5 ${projects.isFetching ? "animate-spin" : ""}`} />{" "}
@@ -140,46 +140,16 @@ function Dashboard() {
         )}
 
         {list.length > 0 && (
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="mt-6 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {list.map((p) => (
-              <div key={p.project_id} className="relative transition hover:-translate-y-1">
-                <Link
-                  to="/app/projects/$projectId"
-                  params={{ projectId: p.project_id }}
-                  className="group block h-full rounded-2xl border bg-card p-6 shadow-soft transition hover:border-primary"
-                >
-                  <div className="flex items-start justify-between gap-3 pr-9">
-                    <h3 className="min-w-0 truncate text-lg font-semibold group-hover:text-primary">
-                      {p.name}
-                    </h3>
-                    <RunStatusPill status={p.last_status} className="shrink-0" />
-                  </div>
-                  {p.initial_prompt && (
-                    <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                      {p.initial_prompt}
-                    </p>
-                  )}
-                  <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>
-                      {p.current_version
-                        ? `Live version v${p.current_version}`
-                        : "No stable version yet"}
-                    </span>
-                    <span>
-                      {p.run_count} build{p.run_count === 1 ? "" : "s"}
-                    </span>
-                    <span>Updated {formatWhen(p.updated_at)}</span>
-                  </div>
-                </Link>
-                <ProjectActionsMenu
-                  projectName={p.name}
-                  onDelete={() => {
-                    removal.reset();
-                    setToDelete(p);
-                  }}
-                  className="absolute right-4 top-5"
-                />
-              </div>
+              <ProjectCard
+                key={p.project_id}
+                project={p}
+                onDelete={() => {
+                  removal.reset();
+                  setToDelete(p);
+                }}
+              />
             ))}
           </div>
         )}

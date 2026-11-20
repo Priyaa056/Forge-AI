@@ -24,7 +24,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from backend.agents.pm_analysis import PromptValidationError, validate_prompt
-from backend.agents.pm_agent import generate_pm_output
+from backend.agents.pm_agent import generate_pm_output, validate_change_request
 from backend.artifacts import (
     ArtifactSecurityError,
     ArtifactValidationError,
@@ -39,12 +39,12 @@ from backend.codegen.project_files import file_tree
 from backend.config import env_flag
 from backend.llm.client import llm_mode
 from backend.monitoring import sanitize_secret
-from backend.services import github_publisher, toolchain
+from backend.services import github_publisher, insights, refine_preview, toolchain
 from backend.services.github_publisher import GitHubPublishError, PushOptions
 from backend.services.pipeline import STAGE_ORDER, STAGE_SCHEMA_MAP, STAGE_SPEC_FILES, PipelineStage
 from backend.services.preview import PreviewManager
 from backend.services.project_store import ProjectBusy, ProjectNotFound, RollbackRejected
-from backend.services.run_manager import RunManager
+from backend.services.run_manager import RefinementUnavailable, RunManager
 
 _services: Dict[str, Any] = {}
 
@@ -115,6 +115,11 @@ def _rollback_dependency(_r: Request, exc: RollbackDependencyError):
 
 @app.exception_handler(ProjectBusy)
 def _project_busy(_r: Request, exc: ProjectBusy):
+    return _error(409, exc)
+
+
+@app.exception_handler(RefinementUnavailable)
+def _refinement_unavailable(_r: Request, exc: RefinementUnavailable):
     return _error(409, exc)
 
 
@@ -230,6 +235,16 @@ class RunCreateRequest(BaseModel):
     simulate_failure: Optional[str] = None
 
 
+class RefineRequest(BaseModel):
+    change_request: Optional[str] = Field(default=None, max_length=5000, description="What to change, add, remove or improve")
+    draft_id: Optional[str] = Field(default=None, max_length=64, description="Apply a plan approved in the preview")
+    simulate_failure: Optional[str] = Field(default=None, description="Test mode: inject a failure into this agent")
+
+
+class RefinePreviewRequest(BaseModel):
+    change_request: str = Field(..., max_length=5000)
+
+
 class ProjectRollbackRequest(BaseModel):
     target_run_id: str = Field(..., description="A run that produced a stable version")
     reason: Optional[str] = Field(default=None, max_length=300)
@@ -311,6 +326,12 @@ def list_projects(user: User = Depends(current_user)):
     return {"projects": services()["store"].list_projects(owner_id=user["id"])}
 
 
+@app.get("/api/stats")
+def dashboard_stats(days: int = Query(14, ge=7, le=90), user: User = Depends(current_user)):
+    """Dashboard analytics for the signed-in user (builds, success rate, build time, tests, daily series)."""
+    return insights.user_stats(services()["store"], user["id"], days=days)
+
+
 @app.get("/api/projects/{project_id}")
 def get_project(project_id: str, user: User = Depends(current_user)):
     svc = services()
@@ -324,6 +345,8 @@ def get_project(project_id: str, user: User = Depends(current_user)):
             "execution_status": summary.get("execution_status"), "progress_percent": summary.get("progress_percent"),
             "total_duration_ms": summary.get("total_duration_ms"), "qa_summary": summary.get("qa_summary"),
             "simulated_failure": (run.get("options") or {}).get("simulate_failure"),
+            "mode": (run.get("options") or {}).get("mode") or "build",
+            "base_version": (run.get("options") or {}).get("base_version"),
             "is_current": run_id == project.get("current_run_id"),
             "stable": any(v["run_id"] == run_id and v["source"] == "run" for v in project["versions"]),
         })
@@ -360,6 +383,75 @@ def create_run(project_id: str, req: RunCreateRequest, user: User = Depends(curr
     fault = _check_fault(req.simulate_failure)
     owned_project(project_id, user)
     return services()["runs"].start_run(project_id, prompt, simulate_failure=fault)
+
+
+@app.post("/api/projects/{project_id}/refine/preview")
+def preview_refinement(project_id: str, req: RefinePreviewRequest, user: User = Depends(current_user)):
+    """Plan a refinement without changing anything: the change plan, data warnings, the migration and the exact
+    code changes. Returns a draft id that applies exactly this plan."""
+    try:
+        change_request = validate_change_request(req.change_request)
+    except PromptValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    owned_project(project_id, user)
+    try:
+        return refine_preview.preview_refinement(services()["runs"], project_id, change_request)
+    except PromptValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/projects/{project_id}/refine", status_code=status.HTTP_202_ACCEPTED)
+def refine_project(project_id: str, req: RefineRequest, user: User = Depends(current_user)):
+    """Iterative refinement of the live version: the PM agent plans the change, only the affected agents update
+    their files, QA re-validates everything (including a regression check) and the result becomes the next version.
+
+    With ``draft_id`` the plan approved in the preview is applied exactly as it was shown."""
+    fault = _check_fault(req.simulate_failure)
+    project = owned_project(project_id, user)
+    svc = services()
+    if req.draft_id:
+        try:
+            draft = svc["store"].load_draft(project_id, req.draft_id)
+        except ProjectNotFound:
+            raise HTTPException(status_code=404, detail="This plan preview was not found. Preview the change again.")
+        if refine_preview.draft_is_expired(draft):
+            svc["store"].delete_draft(project_id, req.draft_id)
+            raise HTTPException(status_code=409, detail="This plan preview has expired. Preview the change again.")
+        if draft.get("base_run_id") != project.get("current_run_id"):
+            raise HTTPException(status_code=409, detail="The live version changed after this plan was made. "
+                                                        "Preview the change again so it applies to the current version.")
+        started = svc["runs"].start_refinement(project_id, draft["change_request"], simulate_failure=fault,
+                                               approved=draft["requirements"])
+        svc["store"].delete_draft(project_id, req.draft_id)
+        return {**started, "approved_plan": True}
+    try:
+        change_request = validate_change_request(req.change_request)
+    except PromptValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return svc["runs"].start_refinement(project_id, change_request, simulate_failure=fault)
+
+
+@app.get("/api/projects/{project_id}/runs/{run_id}/changes")
+def get_run_changes(project_id: str, run_id: str, user: User = Depends(current_user)):
+    """What a refinement changed: the PM's change plan, agents involved, files and the regression check."""
+    svc = services()
+    owned_project(project_id, user)
+    run = svc["store"].load_run(project_id, run_id)
+    options = run.get("options") or {}
+    if options.get("mode") != "refine":
+        raise HTTPException(status_code=404, detail="This build is not a refinement")
+    summary = svc["runs"].get_summary(project_id, run_id)
+    refinement = summary.get("refinement") or {}
+    requirements = svc["store"].read_spec(project_id, run_id, "requirements.json") or {}
+    qa = svc["store"].read_spec(project_id, run_id, "qa_report.json") or {}
+    return {
+        "project_id": project_id, "run_id": run_id, "execution_status": summary.get("execution_status"),
+        "base_run_id": options.get("iteration_of"), "base_version": options.get("base_version"),
+        "change_request": run.get("user_prompt"), "plan": requirements.get("change_plan"),
+        "agent_actions": refinement.get("agent_actions") or {}, "escalated": refinement.get("escalated") or [],
+        "files": refinement.get("files"), "regression": qa.get("regression"),
+        "promotion": summary.get("promotion"), "error_reports": summary.get("error_reports") or {},
+    }
 
 
 @app.get("/api/projects/{project_id}/runs/{run_id}")

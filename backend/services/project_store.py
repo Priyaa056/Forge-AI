@@ -169,6 +169,39 @@ class ProjectStore:
         data["updated_at"] = _now()
         _write_json(self.project_dir(data["project_id"]) / "project.json", data)
 
+    # ------------------------------------------------------------------ refinement drafts (plan previews)
+    def _drafts_dir(self, project_id: str) -> Path:
+        return self.project_dir(project_id) / "drafts"
+
+    def save_draft(self, project_id: str, draft: Dict[str, Any], max_age_seconds: int = 3600) -> str:
+        """Store a previewed refinement plan until it is applied (or expires). Returns the draft id."""
+        folder = self._drafts_dir(project_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        for old in folder.glob("draft_*.json"):  # keep the folder small: drop expired previews
+            try:
+                if now - old.stat().st_mtime > max_age_seconds:
+                    old.unlink()
+            except OSError:
+                pass
+        draft_id = f"draft_{uuid.uuid4().hex[:12]}"
+        _write_json(folder / f"{draft_id}.json", {**draft, "draft_id": draft_id})
+        return draft_id
+
+    def load_draft(self, project_id: str, draft_id: str) -> Dict[str, Any]:
+        if not valid_id(draft_id) or not draft_id.startswith("draft_"):
+            raise ProjectNotFound(draft_id)
+        path = self._drafts_dir(project_id) / f"{draft_id}.json"
+        if not path.is_file():
+            raise ProjectNotFound(draft_id)
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def delete_draft(self, project_id: str, draft_id: str) -> None:
+        if valid_id(draft_id) and draft_id.startswith("draft_"):
+            path = self._drafts_dir(project_id) / f"{draft_id}.json"
+            if path.is_file():
+                path.unlink()
+
     def set_github_link(self, project_id: str, link: Dict[str, Any]) -> None:
         """Remember the GitHub repository the project was last pushed to (never a token)."""
         with self._lock(project_id):
@@ -194,8 +227,46 @@ class ProjectStore:
                 "run_count": len(data.get("runs", [])), "current_version": data.get("current_version"),
                 "current_run_id": data.get("current_run_id"),
                 "last_status": (last_run or {}).get("execution_status"),
+                **self._card_details(data, last_run),
             })
         return sorted(items, key=lambda x: x["updated_at"], reverse=True)
+
+    def _card_details(self, data: Dict[str, Any], last_run: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Extra facts for the dashboard cards: last build per agent, QA, theme colour, modules, refinements."""
+        pid = data["project_id"]
+        summary = (last_run or {}).get("summary") or {}
+        agents = {stage: {"status": (info or {}).get("status"), "reused": (info or {}).get("generation_mode") == "reused"}
+                  for stage, info in (summary.get("agents") or {}).items()}
+        qa = summary.get("qa_summary") or {}
+        refinements = 0
+        for run_id in data.get("runs", []):
+            try:
+                if (self.load_run(pid, run_id).get("options") or {}).get("mode") == "refine":
+                    refinements += 1
+            except (ProjectNotFound, OSError, ValueError):
+                continue
+        spec_run = data.get("current_run_id") or (data["runs"][-1] if data.get("runs") else None)
+        theme_color, modules = None, []
+        if spec_run:
+            try:
+                ui = self.read_spec(pid, spec_run, "ui_spec.json") or {}
+                theme_color = (ui.get("styling_requirements") or {}).get("primary_color")
+                req = self.read_spec(pid, spec_run, "requirements.json") or {}
+                modules = [m.get("label") for m in req.get("module_specs") or [] if m.get("kind") != "reports" and m.get("label")]
+            except (ProjectNotFound, OSError, ValueError):
+                pass
+        return {
+            "last_run": {
+                "run_id": (last_run or {}).get("run_id"),
+                "mode": ((last_run or {}).get("options") or {}).get("mode") or "build",
+                "duration_ms": summary.get("total_duration_ms"),
+                "agents": agents,
+                "qa": {"passed": qa.get("tests_passed"), "run": qa.get("tests_run")} if qa else None,
+            } if last_run else None,
+            "refinements": refinements,
+            "theme_color": theme_color if isinstance(theme_color, str) and re.match(r"^#[0-9a-fA-F]{6}$", theme_color) else None,
+            "modules": modules[:8],
+        }
 
     def adopt_unowned_projects(self, owner_id: str) -> int:
         """Assign projects created before platform accounts existed to ``owner_id`` (first account only)."""

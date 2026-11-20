@@ -8,10 +8,15 @@ from typing import Any, Dict, Optional
 
 from backend.artifacts.artifact_manager import ArtifactManager
 from backend.artifacts.artifact_store import LocalJsonArtifactStore
+from backend.codegen.project_files import verify_manifest
 from backend.config import env_int, workspace_dir
 from backend.monitoring.logger import PipelineLogger
 from backend.services.pipeline import AgentStatus, ForgePipeline
-from backend.services.project_store import ProjectStore
+from backend.services.project_store import ProjectBusy, ProjectStore
+
+
+class RefinementUnavailable(ValueError):
+    """The project cannot be refined right now (no live version, or its files failed verification)."""
 
 logger = logging.getLogger("forge.runs")
 
@@ -57,6 +62,51 @@ class RunManager:
         self._persist(pipeline)
         self._executor.submit(self._execute, pipeline)
         return {"project_id": project_id, "run_id": run_id, "status": "PENDING"}
+
+    def refinement_base(self, project_id: str) -> Dict[str, Any]:
+        """The live version a refinement starts from (verified), or RefinementUnavailable."""
+        project = self.store.load_project(project_id)
+        base_run, base_version = project.get("current_run_id"), project.get("current_version")
+        if not base_run or not base_version:
+            raise RefinementUnavailable("This project has no live version to refine yet. Wait for a build to finish "
+                                        "successfully, or start a new build from a description.")
+        base_dir = self.store.run_dir(project_id, base_run)
+        problems = verify_manifest(base_dir / "app")
+        if problems:
+            raise RefinementUnavailable("The live version's files failed their integrity check ("
+                                        + "; ".join(problems[:3]) + "); roll back or rebuild before refining.")
+        previous = self.store.read_spec(project_id, base_run, "requirements.json")
+        if not previous:
+            raise RefinementUnavailable("The live version has no stored requirements to refine.")
+        return {"base_run_id": base_run, "base_version": base_version, "base_dir": base_dir, "previous": previous}
+
+    def start_refinement(self, project_id: str, change_request: str, simulate_failure: Optional[str] = None,
+                         approved: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Refine the live version: the run starts from its files and only the agents the change needs rewrite theirs.
+
+        ``approved``: the refined specification the user approved in the plan preview; it is applied as is.
+        """
+        base = self.refinement_base(project_id)
+        if self.has_active_run(project_id):
+            raise ProjectBusy("A build is already running for this project. Wait for it to finish, then refine the app.")
+        base_run, base_version, base_dir, previous = base["base_run_id"], base["base_version"], base["base_dir"], base["previous"]
+        run_id = f"run_{uuid.uuid4().hex[:8]}"
+        run_path = self.store.register_run(project_id, run_id, change_request, {
+            "simulate_failure": simulate_failure, "iteration_of": base_run, "mode": "refine", "base_version": base_version,
+            "approved_in_preview": approved is not None})
+        pipeline = ForgePipeline(
+            user_prompt=change_request, project_id=project_id, run_id=run_id, output_dir=str(run_path),
+            artifact_manager=self.artifact_manager, pipeline_logger=self.pipeline_logger,
+            simulate_failure=simulate_failure, previous_requirements=previous, on_update=self._persist,
+            refine={"base_run_id": base_run, "base_version": base_version, "base_dir": str(base_dir),
+                    "change_request": change_request, "approved": approved},
+        )
+        with self._lock:
+            self.active[run_id] = pipeline
+        self._persist(pipeline)
+        self._executor.submit(self._execute, pipeline)
+        return {"project_id": project_id, "run_id": run_id, "status": "PENDING", "mode": "refine",
+                "base_version": base_version}
 
     def _execute(self, pipeline: ForgePipeline) -> None:
         pid, rid = pipeline.state.project_id, pipeline.state.run_id

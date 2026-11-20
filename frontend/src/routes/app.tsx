@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import robot from "@/assets/robot.png";
-import { AppHeader } from "@/components/app/AppHeader";
+import { AppShell } from "@/components/app/AppShell";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/app")({
@@ -33,9 +33,8 @@ function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen">
-      <AppHeader />
+    <AppShell>
       <Outlet />
-    </div>
+    </AppShell>
   );
 }

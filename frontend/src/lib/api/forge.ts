@@ -2,6 +2,7 @@
 import { downloadFile, request } from "./client";
 import type {
   Artifact,
+  DashboardStats,
   DeployReport,
   ExecutionEvent,
   FileEntry,
@@ -11,7 +12,9 @@ import type {
   ProjectDetail,
   ProjectListItem,
   QAReport,
+  RefinePreview,
   RollbackResult,
+  RunChanges,
   RunSummary,
   Session,
   StageName,
@@ -40,6 +43,8 @@ export const forgeApi = {
   listProjects: () =>
     request<{ projects: ProjectListItem[] }>("/api/projects").then((r) => r.projects),
   getProject: (projectId: string) => request<ProjectDetail>(`/api/projects/${enc(projectId)}`),
+  /** Dashboard analytics (builds, success rate, build time, tests, daily series). */
+  stats: (days = 14) => request<DashboardStats>(`/api/stats?days=${days}`),
   createProject: (prompt: string, projectName?: string, simulateFailure?: StageName) =>
     request<{ project_id: string; run_id: string }>("/api/projects", {
       method: "POST",
@@ -65,6 +70,36 @@ export const forgeApi = {
         ...(simulateFailure ? { simulate_failure: simulateFailure } : {}),
       },
     }),
+  /** Iterative refinement of the live version: only the agents the change affects update their files. */
+  refineProject: (projectId: string, changeRequest: string, simulateFailure?: StageName) =>
+    request<{ project_id: string; run_id: string; mode: "refine"; base_version: number }>(
+      `/api/projects/${enc(projectId)}/refine`,
+      {
+        method: "POST",
+        body: {
+          change_request: changeRequest,
+          ...(simulateFailure ? { simulate_failure: simulateFailure } : {}),
+        },
+      },
+    ),
+  /** Plan a refinement without changing anything (plan, data warnings, migration, code changes). */
+  previewRefinement: (projectId: string, changeRequest: string) =>
+    request<RefinePreview>(`/api/projects/${enc(projectId)}/refine/preview`, {
+      method: "POST",
+      body: { change_request: changeRequest },
+    }),
+  /** Build exactly the plan that was approved in the preview. */
+  applyRefinementPlan: (projectId: string, draftId: string) =>
+    request<{ project_id: string; run_id: string; mode: "refine"; approved_plan: boolean }>(
+      `/api/projects/${enc(projectId)}/refine`,
+      { method: "POST", body: { draft_id: draftId } },
+    ),
+  getRunChanges: (projectId: string, runId: string) =>
+    request<RunChanges>(`/api/projects/${enc(projectId)}/runs/${enc(runId)}/changes`),
+  getRequirements: (projectId: string, runId: string) =>
+    request<{ module_specs?: { label: string; kind: string; entities: string[] }[] }>(
+      `/api/projects/${enc(projectId)}/runs/${enc(runId)}/specs/pm`,
+    ),
   getRun: (projectId: string, runId: string) =>
     request<RunSummary>(`/api/projects/${enc(projectId)}/runs/${enc(runId)}`),
   getRunEvents: (projectId: string, runId: string) =>

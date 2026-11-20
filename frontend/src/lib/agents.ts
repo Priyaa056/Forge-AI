@@ -56,6 +56,7 @@ export const MODE_LABEL: Record<string, string> = {
   deterministic_fallback: "Rule-based (LLM fallback)",
   execution: "Executed",
   custom_handler: "Custom",
+  reused: "Unchanged",
 };
 
 export function formatDuration(ms: number | null | undefined): string {

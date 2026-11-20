@@ -14,6 +14,8 @@ logger = logging.getLogger("pipeline_logger")
 SPECIFIC_SECRET_PATTERNS = [
     # Specific API Key / Token Formats
     (re.compile(r"AIzaSy[a-zA-Z0-9_-]{20,}"), "[REDACTED_GEMINI_KEY]"),
+    (re.compile(r"gsk_[a-zA-Z0-9]{20,}"), "[REDACTED_GROQ_KEY]"),
+    (re.compile(r"sk-or-v1-[a-zA-Z0-9]{20,}"), "[REDACTED_OPENROUTER_KEY]"),
     (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "[REDACTED_OPENAI_KEY]"),
     (re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]+"), "Bearer [REDACTED_TOKEN]"),
 ]

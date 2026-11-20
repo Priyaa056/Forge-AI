@@ -42,6 +42,46 @@ export interface ProjectListItem {
   current_version: number | null;
   current_run_id: string | null;
   last_status: RunStatus | null;
+  /** The latest build: per-agent status (7 agents), QA tests, duration. */
+  last_run?: {
+    run_id: string | null;
+    mode: "build" | "refine";
+    duration_ms: number | null;
+    agents: Partial<Record<StageName, { status: AgentStatus | null; reused: boolean }>>;
+    qa: { passed: number | null; run: number | null } | null;
+  } | null;
+  refinements?: number;
+  /** The generated app's primary colour (#rrggbb). */
+  theme_color?: string | null;
+  modules?: string[];
+}
+
+/** GET /api/stats: analytics for the signed-in user. */
+export interface DashboardStats {
+  days: number;
+  projects: number;
+  live_apps: number;
+  builds: number;
+  succeeded: number;
+  failed: number;
+  running: number;
+  refinements: number;
+  success_rate: number | null;
+  avg_build_ms: number | null;
+  tests_passed: number;
+  tests_run: number;
+  agent_avg_ms: Partial<Record<StageName, number | null>>;
+  builds_change_pct: number | null;
+  success_rate_change: number | null;
+  daily: {
+    date: string;
+    builds: number;
+    succeeded: number;
+    failed: number;
+    success_rate: number | null;
+    avg_build_ms: number | null;
+    tests_passed: number;
+  }[];
 }
 
 export interface QASummary {
@@ -52,6 +92,102 @@ export interface QASummary {
   score: number | null;
   frontend_build: string | null;
   summary: string | null;
+  regression?: RegressionReport | null;
+}
+
+/** Refinements: what passed in the refined version, re-checked. */
+export interface RegressionReport {
+  base_version: number | null;
+  requirements_checked: number;
+  requirements_still_met: number;
+  requirements_retired: number;
+  tests_checked: number;
+  tests_still_passing: number;
+  tests_retired: number;
+  failures: string[];
+}
+
+export interface ChangeItem {
+  action: "added" | "removed" | "modified" | "renamed" | string;
+  area: string;
+  target: string;
+  detail: string;
+  agents: string[];
+}
+
+export interface AgentImpact {
+  agent: StageName;
+  action: "plan" | "update" | "reuse" | "validate" | "package" | string;
+  reasons: string[];
+}
+
+/** The PM agent's plan for a refinement. */
+export interface ChangePlan {
+  change_request: string;
+  base_run_id: string | null;
+  base_version: number | null;
+  summary: string;
+  applied: string[];
+  changes: ChangeItem[];
+  agents: AgentImpact[];
+  preserved: Record<string, number>;
+  unresolved: string[];
+  notes: string[];
+}
+
+export interface FileChanges {
+  added: string[];
+  modified: string[];
+  removed: string[];
+  counts: { added: number; modified: number; removed: number; unchanged: number };
+  by_agent: Record<string, { added: number; modified: number; removed: number }>;
+}
+
+export interface RefinementSummary {
+  base_run_id: string | null;
+  base_version: number | null;
+  change_request: string;
+  plan_summary: string | null;
+  /** Actual actions: plan | update | reused | "update (impact check)" | validate | package */
+  agent_actions: Record<string, string>;
+  escalated: { agent: string; files: string[] }[];
+  files: FileChanges | null;
+}
+
+export interface RunChanges {
+  project_id: string;
+  run_id: string;
+  execution_status: RunStatus;
+  base_run_id: string | null;
+  base_version: number | null;
+  change_request: string;
+  plan: ChangePlan | null;
+  agent_actions: Record<string, string>;
+  escalated: { agent: string; files: string[] }[];
+  files: FileChanges | null;
+  regression: RegressionReport | null;
+  promotion?: RunSummary["promotion"];
+  error_reports: Partial<Record<string, string>>;
+}
+
+/** A refinement planned but not applied yet (POST /refine/preview). */
+export interface RefinePreview {
+  applicable: boolean;
+  /** Why nothing can be applied (when applicable is false). */
+  message: string | null;
+  draft_id: string | null;
+  base_run_id: string;
+  base_version: number;
+  change_request: string;
+  plan: ChangePlan | null;
+  generation_mode?: string;
+  /** Data the change would delete or invalidate in a deployed database. */
+  warnings: string[];
+  migration: { file: string; sql: string } | null;
+  /** Code changes from the PM, UI, Backend, Database and Auth agents, computed in a scratch copy. */
+  files: FileChanges | null;
+  notes: string[];
+  expires_at?: string;
 }
 
 export interface RunListItem {
@@ -65,6 +201,9 @@ export interface RunListItem {
   simulated_failure: StageName | null;
   is_current: boolean;
   stable: boolean;
+  /** "refine" for iterative refinements of a live version. */
+  mode?: "build" | "refine";
+  base_version?: number | null;
 }
 
 export interface VersionEntry {
@@ -139,6 +278,8 @@ export interface AgentSummary {
   generated_files: number;
   spec_file: string;
   error?: string;
+  /** Set when a refinement reused this agent's output from an earlier version. */
+  reused_from_version?: number;
 }
 
 export interface RunSummary {
@@ -168,6 +309,8 @@ export interface RunSummary {
     error?: string;
   };
   agents: Record<StageName, AgentSummary>;
+  mode?: "build" | "refine";
+  refinement?: RefinementSummary | null;
 }
 
 export interface ExecutionEvent {

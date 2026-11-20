@@ -31,6 +31,9 @@ def _test_environment(monkeypatch):
     """Deterministic, fast defaults: no real LLM, no frontend build unless a test opts in."""
     monkeypatch.setenv("USE_LLM", "false")
     monkeypatch.setenv("FORGE_QA_FRONTEND_BUILD", "false")
+    for name in ("LLM_PROVIDER", "GROQ_API_KEY", "GROQ_MODEL", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL",
+                 "LLM_MAX_TOKENS"):
+        monkeypatch.delenv(name, raising=False)  # a developer's backend/.env must not change test results
     set_llm_client(None, force=False)
     yield
     set_llm_client(None, force=False)

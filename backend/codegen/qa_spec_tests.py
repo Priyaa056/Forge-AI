@@ -25,6 +25,26 @@ def _args(*names: str) -> str:
     return ", ".join(sorted(set(names)))
 
 
+def _same_value(f: BField):
+    """One valid value of the field's own type, used for both records of a duplicate check."""
+    if f.kind in ("date", "datetime", "time"):
+        return _shift(f, False)
+    if f.kind == "integer":
+        low = int(f.min_value) if f.min_value is not None else 1
+        return min(low + 4, int(f.max_value)) if f.max_value is not None else low + 4
+    if f.kind in ("float", "decimal"):
+        low = float(f.min_value) if f.min_value is not None else 0.0
+        value = low + 4.5
+        return round(min(value, float(f.max_value)) if f.max_value is not None else value, 2)
+    if f.kind == "enum" and f.enum_values:
+        return f.enum_values[0]
+    if f.kind == "boolean":
+        return True
+    if f.kind == "email":
+        return "same@example.com"
+    return "QA same value"
+
+
 def _shift(f: BField, earlier: bool):
     """Two ordered sample values for a date/datetime/time field."""
     if f.kind == "date":
@@ -188,7 +208,7 @@ def render_rule_tests(bp: Blueprint) -> Optional[str]:
                     setup.append(f"    {name} = factories.make_{parent.snake}(client, {_creator(bp, parent)}, admin_headers)['id']")
                     values[name] = name
                 else:
-                    values[name] = _q(_shift(f, False) if f.kind in ("date", "datetime", "time") else "QA same value")
+                    values[name] = _q(_same_value(f))
             args = ", ".join(f"{k}={v}" for k, v in values.items())
             fixtures = sorted({creator, "admin_headers", *[_creator(bp, bp.entity(e.get_field(n).references))
                                                             for n in fields if e.get_field(n).kind == "reference"]})

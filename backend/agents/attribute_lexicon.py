@@ -144,6 +144,7 @@ MODULE_RECORDS: Dict[str, List[str]] = {
 # Typical relations: child -> parents (applied ONLY when the prompt requested both entities).
 TYPICAL_RELATIONS: Dict[str, List[str]] = {
     "appointment": ["patient", "doctor", "department"],
+    "interview": ["application", "candidate"],
     "admission": ["patient", "bed", "room", "doctor"],
     "bed": ["room"],
     "room": ["department"],

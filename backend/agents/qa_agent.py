@@ -85,11 +85,15 @@ class QAAgent(BaseAgent[QAOutput]):
         project: Optional[Any] = None,
         log_fn=None,
         run_frontend_build: Optional[bool] = None,
+        baseline: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(output_schema_cls=QAOutput, output_filepath=output_filepath,
                          artifact_context=artifact_context, project=project, log_fn=log_fn)
         self.paths = {"pm": pm_output_path, "backend": backend_output_path, "db": db_output_path,
                       "auth": auth_output_path, "ui": ui_output_path}
+        # refinements: {"version": N, "report": <QA report of version N>} - everything that passed there and
+        # still exists must still pass
+        self.baseline = baseline
         self.run_frontend_build = env_flag("FORGE_QA_FRONTEND_BUILD", True) if run_frontend_build is None else run_frontend_build
         self.pm_data: Optional[PMOutput] = None
         self.ui_data: Optional[UIOutput] = None
@@ -107,7 +111,7 @@ class QAAgent(BaseAgent[QAOutput]):
 
     # ------------------------------------------------------------------ helpers
     def _env(self, tmp: Path) -> Dict[str, str]:
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("GOOGLE_", "GEMINI_")) and k != "USE_LLM"}
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GOOGLE_", "GEMINI_", "GROQ_", "LLM_")) and k not in ("USE_LLM", "LLM_PROVIDER")}
         env.update({
             "DATABASE_URL": "sqlite:///" + (tmp / "qa_probe.db").as_posix(),
             "SECRET_KEY": "qa-probe-key",
@@ -193,6 +197,9 @@ class QAAgent(BaseAgent[QAOutput]):
         test_files = write_test_files(bp, self.project)
         self.log(f"Generated {len(test_files)} test files covering {len(bp.entities)} resources, {len(bp.workflows)} workflows, "
                  f"{len(bp.rules)} business rules, {len(bp.metrics)} dashboard metrics, auth and admin")
+        stale = self.project.remove_stale(AGENT)  # refinements: tests of removed records must not run
+        if stale:
+            self.log(f"Removed {len(stale)} test file(s) for parts of the app that no longer exist: {', '.join(stale[:5])}")
 
         checks: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
@@ -308,6 +315,24 @@ class QAAgent(BaseAgent[QAOutput]):
                 if not ok:
                     error("BuildError", "frontend", output[-1200:])
 
+        regression = None
+        if self.baseline and self.baseline.get("report"):
+            started = time.monotonic()
+            regression = self._regression(self.baseline, coverage["items"], tests)
+            failed = regression["failures"]
+            version = self.baseline.get("version")
+            self._add(checks, f"Regression check against v{version} (existing features preserved)", "integration",
+                      "failed" if failed else "passed", started,
+                      f"{regression['requirements_still_met']}/{regression['requirements_checked']} requirements and "
+                      f"{regression['tests_still_passing']}/{regression['tests_checked']} tests that passed in v{version} still pass; "
+                      f"{regression['requirements_retired']} requirement(s) and {regression['tests_retired']} test(s) retired by "
+                      "the change" + ("\nNow failing: " + "; ".join(failed[:15]) if failed else ""))
+            for item in failed:
+                error("IntegrationError", "integration", f"Regression: {item} passed in v{version} and fails now")
+            self.log(f"Regression check: {regression['requirements_still_met']}/{regression['requirements_checked']} "
+                     f"requirements and {regression['tests_still_passing']}/{regression['tests_checked']} tests from v{version} "
+                     "still pass", "info" if not failed else "warning")
+
         suites: Dict[str, Dict[str, Any]] = {}
         for t in tests:
             s = suites.setdefault(t["suite"], {"name": t["suite"], "test_type": "integration", "tests_count": 0,
@@ -344,6 +369,7 @@ class QAAgent(BaseAgent[QAOutput]):
             "requirement_coverage": coverage["items"],
             "correction_tasks": coverage["correction_tasks"],
             "unsupported_requests": coverage["unsupported"],
+            "regression": regression,
         }
         healing = SelfHealingManager(max_attempts=1).evaluate(report)
         report["repair_recommendation"] = (healing.repair_request.summary if healing.repair_request else healing.message)
@@ -356,6 +382,43 @@ class QAAgent(BaseAgent[QAOutput]):
         )
         self.log(f"QA {status.upper()}: {report['summary']}", "info" if status == "passed" else "warning")
         return report
+
+    @staticmethod
+    def _regression(baseline: Dict[str, Any], items: List[Dict[str, Any]], tests: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Compare with the QA report of the refined version: what passed there and still exists must still pass."""
+        report = baseline.get("report") or {}
+        now_items = {(i.get("kind"), i.get("requirement")): i.get("status") for i in items}
+        now_tests = {(t.get("suite"), t.get("name")): t.get("status") for t in tests}
+        failures: List[str] = []
+        checked = met = retired = 0
+        for i in report.get("requirement_coverage") or []:
+            if i.get("status") != "covered":
+                continue
+            key = (i.get("kind"), i.get("requirement"))
+            if key not in now_items:
+                retired += 1
+                continue
+            checked += 1
+            if now_items[key] == "covered":
+                met += 1
+            else:
+                failures.append(f"requirement '{i.get('requirement')}'")
+        t_checked = t_ok = t_retired = 0
+        for t in report.get("test_results") or []:
+            if t.get("status") != "passed":
+                continue
+            key = (t.get("suite"), t.get("name"))
+            if key not in now_tests:
+                t_retired += 1
+                continue
+            t_checked += 1
+            if now_tests[key] == "passed":
+                t_ok += 1
+            else:
+                failures.append(f"test {t.get('suite')}::{t.get('name')}")
+        return {"base_version": baseline.get("version"), "requirements_checked": checked, "requirements_still_met": met,
+                "requirements_retired": retired, "tests_checked": t_checked, "tests_still_passing": t_ok,
+                "tests_retired": t_retired, "failures": failures}
 
     def emit_code(self, output: QAOutput) -> List[str]:
         return list(output.generated_test_files)

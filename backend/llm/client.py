@@ -1,6 +1,12 @@
 """LLM client abstraction.
 
-Real execution uses Google Gemini when ``USE_LLM=true`` and ``GOOGLE_API_KEY`` is configured.
+``USE_LLM=true`` turns LLM assistance on; ``LLM_PROVIDER`` picks the provider:
+
+* ``gemini`` (default): Google Gemini with ``GOOGLE_API_KEY`` (and optional ``GEMINI_MODEL``).
+* ``groq``: Groq's OpenAI-compatible API with ``GROQ_API_KEY`` (and optional ``GROQ_MODEL``).
+* ``openai_compatible``: any OpenAI-compatible chat API (OpenRouter, a local server, ...) with
+  ``LLM_BASE_URL``, ``LLM_API_KEY`` and ``LLM_MODEL``.
+
 When no LLM is configured, agents run their deterministic, prompt-driven generators and every
 artifact records ``generation_mode`` so the dashboard can show which mode produced it.
 
@@ -13,13 +19,19 @@ import logging
 import os
 import re
 import threading
+import time
 from typing import Any, Dict, Optional, Protocol
+
+import httpx
 
 import backend.config  # noqa: F401  (loads backend/.env)
 
 logger = logging.getLogger("forge.llm")
 
-PLACEHOLDER_KEYS = {"", "your_gemini_api_key_here", "changeme"}
+PLACEHOLDER_KEYS = {"", "your_gemini_api_key_here", "your_groq_api_key_here", "your_api_key_here", "changeme"}
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+PROVIDERS = ("gemini", "groq", "openai_compatible")
 
 
 class LLMError(Exception):
@@ -64,6 +76,102 @@ class GeminiClient:
         return text
 
 
+class OpenAICompatibleClient:
+    """Chat-completions client for OpenAI-compatible APIs (Groq, OpenRouter, ...) over httpx.
+
+    Asks for a JSON object when ``json_mode`` is set (and retries without it if the model does not
+    support that), waits once on a rate limit, and never puts the API key in an error message.
+    """
+
+    def __init__(self, api_key: str, base_url: str, model_name: str, provider: str = "openai_compatible",
+                 timeout_s: float = 90.0, max_tokens: Optional[int] = None,
+                 transport: Optional[httpx.BaseTransport] = None):
+        self._api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model_name = model_name
+        self.provider = provider
+        self.name = f"{provider}:{model_name}"
+        self.max_tokens = max_tokens
+        self._http = httpx.Client(timeout=timeout_s, transport=transport)
+
+    def _post(self, body: Dict[str, Any]) -> httpx.Response:
+        try:
+            return self._http.post(f"{self.base_url}/chat/completions", json=body,
+                                   headers={"Authorization": f"Bearer {self._api_key}"})
+        except httpx.HTTPError as exc:  # network failure, timeout
+            raise LLMError(f"{self.provider} request failed: {type(exc).__name__}") from exc
+
+    @staticmethod
+    def _error_text(response: httpx.Response) -> str:
+        try:
+            error = response.json().get("error")
+            message = error.get("message") if isinstance(error, dict) else error
+        except ValueError:
+            message = response.text
+        return str(message or response.reason_phrase)[:300]
+
+    def generate_text(self, prompt: str, *, json_mode: bool = True) -> str:
+        body: Dict[str, Any] = {"model": self.model_name, "messages": [{"role": "user", "content": prompt}],
+                                "temperature": 0.2}
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        if self.max_tokens:
+            body["max_tokens"] = self.max_tokens
+        response = self._post(body)
+        if response.status_code == 429:  # rate limited: wait as asked (briefly) and try once more
+            try:
+                wait = float(response.headers.get("retry-after", "5"))
+            except ValueError:
+                wait = 5.0
+            time.sleep(min(max(wait, 1.0), 20.0))
+            response = self._post(body)
+        if response.status_code == 400 and json_mode and "response_format" in self._error_text(response):
+            body.pop("response_format")  # this model has no JSON mode; the prompt still asks for JSON
+            response = self._post(body)
+        if response.status_code >= 400:
+            raise LLMError(f"{self.provider} request failed: HTTP {response.status_code}: {self._error_text(response)}")
+        try:
+            content = response.json()["choices"][0]["message"].get("content")
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise LLMError(f"{self.provider} returned an unexpected response") from exc
+        if not content:
+            raise LLMError(f"{self.provider} returned an empty response")
+        return content
+
+
+def _max_tokens() -> Optional[int]:
+    try:
+        value = int(os.getenv("LLM_MAX_TOKENS", "0"))
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _build_client(provider: str) -> Optional[Any]:
+    """Create the client for ``provider`` from the environment, or None when its key is missing."""
+    if provider == "groq":
+        api_key = os.getenv("GROQ_API_KEY", "").strip()
+        if api_key in PLACEHOLDER_KEYS:
+            logger.warning("LLM_PROVIDER=groq but GROQ_API_KEY is not configured; using deterministic generators.")
+            return None
+        model = os.getenv("GROQ_MODEL", "").strip() or DEFAULT_GROQ_MODEL
+        return OpenAICompatibleClient(api_key, GROQ_BASE_URL, model, provider="groq", max_tokens=_max_tokens())
+    if provider == "openai_compatible":
+        api_key = os.getenv("LLM_API_KEY", "").strip()
+        base_url = os.getenv("LLM_BASE_URL", "").strip()
+        model = os.getenv("LLM_MODEL", "").strip()
+        if api_key in PLACEHOLDER_KEYS or not base_url.startswith(("http://", "https://")) or not model:
+            logger.warning("LLM_PROVIDER=openai_compatible needs LLM_BASE_URL, LLM_API_KEY and LLM_MODEL; "
+                           "using deterministic generators.")
+            return None
+        return OpenAICompatibleClient(api_key, base_url, model, provider="openai_compatible", max_tokens=_max_tokens())
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    if api_key in PLACEHOLDER_KEYS:
+        logger.warning("USE_LLM=true but GOOGLE_API_KEY is not configured; using deterministic generators.")
+        return None
+    return GeminiClient(api_key=api_key)
+
+
 _override_lock = threading.Lock()
 _override_client: Optional[Any] = None
 _override_set = False
@@ -83,14 +191,16 @@ def get_llm_client() -> Optional[Any]:
         return _override_client
     if os.getenv("USE_LLM", "false").strip().lower() != "true":
         return None
-    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    if api_key in PLACEHOLDER_KEYS:
-        logger.warning("USE_LLM=true but GOOGLE_API_KEY is not configured; using deterministic generators.")
+    provider = os.getenv("LLM_PROVIDER", "gemini").strip().lower() or "gemini"
+    if provider not in PROVIDERS:
+        logger.warning("Unknown LLM_PROVIDER=%r (expected one of %s); using deterministic generators.",
+                       provider, ", ".join(PROVIDERS))
         return None
     try:
-        return GeminiClient(api_key=api_key)
+        return _build_client(provider)
     except Exception as exc:
-        logger.warning("Could not initialise Gemini client (%s); using deterministic generators.", exc)
+        logger.warning("Could not initialise the %s client (%s); using deterministic generators.",
+                       provider, type(exc).__name__)
         return None
 
 
@@ -102,8 +212,8 @@ def llm_mode() -> Dict[str, Any]:
             "llm_enabled": False,
             "provider": None,
             "mode": "deterministic",
-            "detail": "No LLM configured (set USE_LLM=true and GOOGLE_API_KEY in backend/.env). "
-            "Agents use prompt-driven rule-based analysis.",
+            "detail": "No LLM configured (set USE_LLM=true and a provider key, e.g. LLM_PROVIDER=groq with "
+            "GROQ_API_KEY, in backend/.env). Agents use prompt-driven rule-based analysis.",
         }
     return {"llm_enabled": True, "provider": getattr(client, "name", "llm"), "mode": "llm", "detail": "LLM-assisted generation"}
 

@@ -111,3 +111,5 @@ class QAOutput(BaseModel):
     correction_tasks: List[Dict[str, Any]] = Field(
         default_factory=list, description="Targeted correction tasks for the agents responsible for missing requirements")
     unsupported_requests: List[str] = Field(default_factory=list, description="Requested capabilities the generator cannot provide")
+    regression: Optional[Dict[str, Any]] = Field(
+        default=None, description="Refinements: requirements and tests that passed in the refined version, re-checked")

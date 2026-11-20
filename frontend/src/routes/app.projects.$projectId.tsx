@@ -1,17 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, Download, FlaskConical, Github, Loader2, Sparkles } from "lucide-react";
+import { ChevronLeft, Download, FlaskConical, Github, Loader2, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { btnGhost } from "@/components/brand";
 import { ActivityFeed } from "@/components/app/ActivityFeed";
 import { AgentPipeline } from "@/components/app/AgentPipeline";
+import { PipelineGraph } from "@/components/app/PipelineGraph";
 import { ArtifactDialog } from "@/components/app/ArtifactDialog";
+import { ChangesPanel } from "@/components/app/ChangesPanel";
 import { FilesPanel } from "@/components/app/FilesPanel";
 import { GitHubPushDialog } from "@/components/app/GitHubPush";
 import { PreviewPanel } from "@/components/app/PreviewPanel";
 import { PromptForm } from "@/components/app/PromptForm";
 import { QualityPanel } from "@/components/app/QualityPanel";
+import { RefineFlow } from "@/components/app/RefineFlow";
 import { VersionsPanel } from "@/components/app/VersionsPanel";
 import { Alert, RunStatusPill, WindowFrame } from "@/components/app/ui";
 import {
@@ -58,6 +61,7 @@ function Workspace() {
   const queryClient = useQueryClient();
   const [artifactId, setArtifactId] = useState<string | null>(null);
   const [iterating, setIterating] = useState(false);
+  const [rebuild, setRebuild] = useState(false);
   const [tab, setTab] = useState("activity");
 
   const system = useQuery({ queryKey: ["system"], queryFn: forgeApi.system, staleTime: 60_000 });
@@ -82,6 +86,30 @@ function Workspace() {
     refetchInterval: active ? 1000 : false,
   });
 
+  // Module names of the live version (example change requests that apply as written).
+  const liveRunId = project.data?.current_run_id ?? null;
+  const requirements = useQuery({
+    queryKey: ["requirements", projectId, liveRunId],
+    queryFn: () => forgeApi.getRequirements(projectId, liveRunId ?? ""),
+    enabled: Boolean(liveRunId),
+    staleTime: 60_000,
+  });
+  const moduleLabels = (requirements.data?.module_specs ?? [])
+    .filter((m) => m.kind !== "reports")
+    .map((m) => m.label);
+
+  // A refinement plan was approved and its build started: follow it on the Changes tab.
+  const openRefinement = async (newRunId: string) => {
+    await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    setIterating(false);
+    setTab("changes");
+    void navigate({
+      to: "/app/projects/$projectId",
+      params: { projectId },
+      search: { run: newRunId },
+    });
+  };
+
   // When a build finishes, refresh everything that depends on it (versions, files, preview, history).
   const wasActive = useRef(active);
   useEffect(() => {
@@ -90,6 +118,7 @@ function Workspace() {
       void queryClient.invalidateQueries({ queryKey: ["files", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["preview", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["events", projectId, runId] });
+      void queryClient.invalidateQueries({ queryKey: ["changes", projectId, runId] });
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     }
     wasActive.current = active;
@@ -161,6 +190,15 @@ function Workspace() {
     ? (Object.entries(run.agents).find(([, a]) => a.status === "FAILED")?.[0] as
         StageName | undefined)
     : undefined;
+  const isRefine = (runs[runIndex]?.mode ?? run?.mode) === "refine";
+  const reusedCount = run
+    ? Object.values(run.agents).filter((a) => a.generation_mode === "reused").length
+    : 0;
+  const tabValue = tab === "changes" && !isRefine ? "activity" : tab;
+  const openArtifact = (stage: StageName) => {
+    const id = run?.agents[stage].artifact_id;
+    if (id) setArtifactId(id);
+  };
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
@@ -214,10 +252,13 @@ function Workspace() {
           <button
             type="button"
             className={btnGhost}
-            onClick={() => setIterating(true)}
+            onClick={() => {
+              setRebuild(!p.current_version);
+              setIterating(true);
+            }}
             disabled={active}
           >
-            <Sparkles className="size-4" /> New iteration
+            <Wand2 className="size-4" /> Refine app
           </button>
           <button
             type="button"
@@ -269,6 +310,7 @@ function Workspace() {
               className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${r.run_id === runId ? "border-primary bg-accent text-accent-foreground" : "bg-card hover:bg-muted"}`}
             >
               Build {i + 1}
+              {r.mode === "refine" ? " · refine" : ""}
               {r.run_id === p.current_run_id
                 ? " · live"
                 : r.execution_status === "FAILED"
@@ -284,10 +326,22 @@ function Workspace() {
         label={`forge.ai/workspace/${slugify(name)}${runIndex >= 0 ? ` · build ${runIndex + 1}` : ""}`}
         actions={<RunStatusPill status={run?.execution_status} />}
       >
+        <div className="border-b p-5">
+          <PipelineGraph
+            summary={run}
+            live={Boolean(run) && active}
+            updatedAt={summary.dataUpdatedAt}
+            onSelect={openArtifact}
+          />
+        </div>
         <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-[1fr_1.25fr]">
           <div className="space-y-4">
             <div className="rounded-xl border bg-background p-4">
-              <p className="text-xs font-semibold text-muted-foreground">PROMPT</p>
+              <p className="text-xs font-semibold text-muted-foreground">
+                {isRefine
+                  ? `CHANGE REQUEST · REFINING v${runs[runIndex]?.base_version ?? run?.refinement?.base_version ?? "?"}`
+                  : "PROMPT"}
+              </p>
               <p className="mt-2 text-sm">
                 {run?.user_prompt ?? runs[runIndex]?.user_prompt ?? p.initial_prompt}
               </p>
@@ -308,11 +362,13 @@ function Workspace() {
                   ? `${agentByStage(run.current_agent)?.name ?? run.current_agent} is working…`
                   : run?.promotion?.state === "pending"
                     ? "Promoting the build to the live version…"
-                    : run?.execution_status === "COMPLETED"
-                      ? `All seven agents finished${run.promotion?.state === "promoted" ? ` — live as v${run.promotion.version}` : ""}.`
-                      : run?.execution_status === "FAILED"
-                        ? `${failedAgent ? agentByStage(failedAgent)?.name : "An agent"} failed; later agents were skipped${p.current_version ? ` and v${p.current_version} stays live` : ""}.`
-                        : "Waiting to start…"}
+                    : run?.execution_status === "COMPLETED" && isRefine
+                      ? `Refinement finished — ${7 - reusedCount} agents ran, ${reusedCount} reused unchanged${run.promotion?.state === "promoted" ? `; live as v${run.promotion.version}` : ""}.`
+                      : run?.execution_status === "COMPLETED"
+                        ? `All seven agents finished${run.promotion?.state === "promoted" ? ` — live as v${run.promotion.version}` : ""}.`
+                        : run?.execution_status === "FAILED"
+                          ? `${failedAgent ? agentByStage(failedAgent)?.name : "An agent"} failed; later agents were skipped${p.current_version ? ` and v${p.current_version} stays live` : ""}.`
+                          : "Waiting to start…"}
               </p>
               <div className="mt-4 grid grid-cols-3 gap-px overflow-hidden rounded-lg border bg-border text-center">
                 {[
@@ -343,18 +399,17 @@ function Workspace() {
             )}
             {summary.error && <Alert>{summary.error.message}</Alert>}
           </div>
-          <AgentPipeline
-            summary={run}
-            onSelect={(stage) => {
-              const id = run?.agents[stage].artifact_id;
-              if (id) setArtifactId(id);
-            }}
-          />
+          <AgentPipeline summary={run} onSelect={openArtifact} />
         </div>
       </WindowFrame>
 
-      <Tabs value={tab} onValueChange={setTab} className="mt-10">
+      <Tabs value={tabValue} onValueChange={setTab} className="mt-10">
         <TabsList className="flex h-auto flex-wrap justify-start gap-1 rounded-xl bg-muted p-1">
+          {isRefine && (
+            <TabsTrigger value="changes" className="rounded-lg">
+              Changes
+            </TabsTrigger>
+          )}
           <TabsTrigger value="activity" className="rounded-lg">
             Activity
           </TabsTrigger>
@@ -371,6 +426,11 @@ function Workspace() {
             Versions
           </TabsTrigger>
         </TabsList>
+        {isRefine && runId && (
+          <TabsContent value="changes" className="mt-6">
+            <ChangesPanel projectId={projectId} runId={runId} live={active} />
+          </TabsContent>
+        )}
         <TabsContent value="activity" className="mt-6">
           <ActivityFeed events={events.data ?? []} live={active} />
         </TabsContent>
@@ -383,6 +443,27 @@ function Workspace() {
             slug={slugify(name)}
             currentVersion={p.current_version}
           />
+          {p.current_version && (
+            <section className="mt-4 rounded-2xl border bg-card p-5">
+              <h3 className="flex items-center gap-2 font-semibold">
+                <Wand2 className="size-4 text-primary" /> Refine this app
+              </h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Describe what to change, add or remove. The PM agent plans the change and only the
+                agents it affects update the existing code.
+              </p>
+              <div className="mt-3">
+                <RefineFlow
+                  compact
+                  projectId={projectId}
+                  liveVersion={p.current_version}
+                  moduleLabels={moduleLabels}
+                  disabled={active}
+                  onApplied={openRefinement}
+                />
+              </div>
+            </section>
+          )}
         </TabsContent>
         <TabsContent value="quality" className="mt-6">
           {runId && <QualityPanel projectId={projectId} runId={runId} finished={!active} />}
@@ -395,25 +476,66 @@ function Workspace() {
       <ArtifactDialog artifactId={artifactId} onClose={() => setArtifactId(null)} />
 
       <Dialog open={iterating} onOpenChange={setIterating}>
-        <DialogContent className="max-w-xl rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>New iteration</DialogTitle>
-            <DialogDescription>
-              Run the seven agents again on this project with an updated description.
-            </DialogDescription>
-          </DialogHeader>
-          <PromptForm
-            mode="iteration"
-            initialPrompt={runs[runs.length - 1]?.user_prompt ?? p.initial_prompt}
-            faultInjection={Boolean(system.data?.fault_injection_enabled)}
-            onSubmit={async ({ prompt, simulateFailure }) => {
-              const created = await forgeApi.createRun(projectId, prompt, simulateFailure);
-              await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-              setIterating(false);
-              setTab("activity");
-              selectRun(created.run_id);
-            }}
-          />
+        <DialogContent className="max-h-[92vh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl [&>*]:min-w-0">
+          {rebuild || !p.current_version ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Rebuild from a description</DialogTitle>
+                <DialogDescription>
+                  Run all seven agents again from an updated full description. To change the live
+                  app in place, refine it instead.
+                </DialogDescription>
+              </DialogHeader>
+              <PromptForm
+                mode="iteration"
+                initialPrompt={p.initial_prompt}
+                faultInjection={Boolean(system.data?.fault_injection_enabled)}
+                onSubmit={async ({ prompt, simulateFailure }) => {
+                  const created = await forgeApi.createRun(projectId, prompt, simulateFailure);
+                  await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+                  setIterating(false);
+                  setTab("activity");
+                  selectRun(created.run_id);
+                }}
+              />
+              {p.current_version && (
+                <button
+                  type="button"
+                  onClick={() => setRebuild(false)}
+                  className="justify-self-start text-sm font-medium text-primary hover:underline"
+                >
+                  Refine the live app (v{p.current_version}) instead
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Wand2 className="size-5 text-primary" /> Refine app
+                </DialogTitle>
+                <DialogDescription>
+                  Change, add, remove or improve parts of v{p.current_version}. Review the PM
+                  agent&apos;s plan first; when you apply it, only the affected agents update the
+                  existing code and QA re-checks everything that already worked.
+                </DialogDescription>
+              </DialogHeader>
+              <RefineFlow
+                projectId={projectId}
+                liveVersion={p.current_version}
+                moduleLabels={moduleLabels}
+                onApplied={openRefinement}
+                onCancel={() => setIterating(false)}
+              />
+              <button
+                type="button"
+                onClick={() => setRebuild(true)}
+                className="justify-self-start text-sm font-medium text-muted-foreground hover:text-foreground hover:underline"
+              >
+                Rebuild from a full description instead
+              </button>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </main>

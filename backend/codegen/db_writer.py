@@ -1,8 +1,9 @@
 """Database Agent code writer: SQLAlchemy 2.x models, session management and PostgreSQL migrations."""
 
+import re
 from datetime import datetime, timezone
 from hashlib import sha1
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from backend.codegen.blueprint import BEntity, BField, Blueprint
 from backend.codegen.project_files import GeneratedProject
@@ -241,6 +242,49 @@ def render_models(bp: Blueprint) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def column_default_sql(f: BField) -> Optional[str]:
+    if f.name == "created_at":
+        return "CURRENT_TIMESTAMP"
+    if f.default is not None and f.kind == "boolean":
+        return "TRUE" if str(f.default).lower() == "true" else "FALSE"
+    if f.default is not None and f.kind == "enum":
+        return f"'{f.default}'"
+    if f.default is not None and f.is_numeric:
+        return str(f.default)
+    return None
+
+
+def column_sql(bp: Blueprint, entity: BEntity, f: BField, allow_not_null: bool = True) -> str:
+    """Column definition used by CREATE TABLE and ALTER TABLE ... ADD COLUMN."""
+    if f.primary_key:
+        return "id SERIAL PRIMARY KEY"
+    parts = [f"{f.name} {f.pg_type}"]
+    default = column_default_sql(f)
+    if (f.required or f.name == "created_at") and (allow_not_null or default is not None):
+        parts.append("NOT NULL")
+    if _column_unique(entity, f):
+        parts.append("UNIQUE")
+    if default is not None:
+        parts.append(f"DEFAULT {default}")
+    if f.kind == "reference" and f.references:
+        target = bp.entity(f.references)
+        parts.append(f"REFERENCES {target.table}(id) ON DELETE {_on_delete(f)}")
+    return " ".join(parts)
+
+
+def create_table_sql(bp: Blueprint, entity: BEntity) -> List[str]:
+    cols = [f"    {column_sql(bp, entity, f)}" for f in entity.fields]
+    for name, expr in _check_constraints(entity):
+        cols.append(f"    CONSTRAINT {name} CHECK ({expr})")
+    for fname in _owner_unique_fields(entity):
+        cols.append(f"    CONSTRAINT uq_{entity.table}_owner_{fname} UNIQUE (owner_id, {fname})")
+    lines = [f"CREATE TABLE IF NOT EXISTS {entity.table} (", ",\n".join(cols), ");"]
+    for f in entity.fields:
+        if f.kind == "reference":
+            lines.append(f"CREATE INDEX IF NOT EXISTS ix_{entity.table}_{f.name} ON {entity.table} ({f.name});")
+    return lines
+
+
 def render_migration_sql(bp: Blueprint) -> Tuple[str, str]:
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     up = [
@@ -250,38 +294,7 @@ def render_migration_sql(bp: Blueprint) -> Tuple[str, str]:
         "",
     ]
     for entity in bp.all_entities:
-        cols = []
-        for f in entity.fields:
-            if f.primary_key:
-                cols.append("    id SERIAL PRIMARY KEY")
-                continue
-            parts = [f"    {f.name} {f.pg_type}"]
-            if f.required or f.name == "created_at":
-                parts.append("NOT NULL")
-            if _column_unique(entity, f):
-                parts.append("UNIQUE")
-            if f.name == "created_at":
-                parts.append("DEFAULT CURRENT_TIMESTAMP")
-            elif f.default is not None and f.kind == "boolean":
-                parts.append(f"DEFAULT {'TRUE' if str(f.default).lower() == 'true' else 'FALSE'}")
-            elif f.default is not None and f.kind == "enum":
-                parts.append(f"DEFAULT '{f.default}'")
-            elif f.default is not None and f.is_numeric:
-                parts.append(f"DEFAULT {f.default}")
-            if f.kind == "reference" and f.references:
-                target = bp.entity(f.references)
-                parts.append(f"REFERENCES {target.table}(id) ON DELETE {_on_delete(f)}")
-            cols.append(" ".join(parts))
-        for name, expr in _check_constraints(entity):
-            cols.append(f"    CONSTRAINT {name} CHECK ({expr})")
-        for fname in _owner_unique_fields(entity):
-            cols.append(f"    CONSTRAINT uq_{entity.table}_owner_{fname} UNIQUE (owner_id, {fname})")
-        up.append(f"CREATE TABLE IF NOT EXISTS {entity.table} (")
-        up.append(",\n".join(cols))
-        up.append(");")
-        for f in entity.fields:
-            if f.kind == "reference":
-                up.append(f"CREATE INDEX IF NOT EXISTS ix_{entity.table}_{f.name} ON {entity.table} ({f.name});")
+        up += create_table_sql(bp, entity)
         up.append("")
     up.append("COMMIT;")
     down = [f"-- Rollback of migration 001 for {bp.project_name}", "BEGIN;"]
@@ -291,20 +304,59 @@ def render_migration_sql(bp: Blueprint) -> Tuple[str, str]:
     return "\n".join(up) + "\n", "\n".join(down) + "\n"
 
 
-def write_db_files(bp: Blueprint, project: GeneratedProject) -> List[str]:
-    up_sql, down_sql = render_migration_sql(bp)
+MIGRATION_RE = re.compile(r"^backend/migrations/(\d{3})_([\w-]+)\.sql$")
+
+
+def existing_migrations(project: GeneratedProject) -> List[str]:
+    """Up-migration files already in the project, in order (``.down.sql`` files excluded)."""
+    found = [p for p in project.manifest if MIGRATION_RE.match(p) and not p.endswith(".down.sql")]
+    return sorted(found)
+
+
+def _migrations_readme(files: List[str]) -> str:
+    lines = ["# Database migrations", "", "Generated by the FORGE AI Database Agent. Apply them in order:", ""]
+    for path in files:
+        name = path.rsplit("/", 1)[-1]
+        what = "creates every table, foreign key, CHECK constraint and index" if name.startswith("001_") else \
+            "evolves the schema for a refinement of the application"
+        lines.append(f"* `{name}` {what} (revert with `{name[:-4]}.down.sql`).")
+    lines += ["", "Apply with `psql \"$DATABASE_URL\" -f migrations/<file>.sql` for each file in order; Docker Compose "
+                  "applies all of them to a new database.",
+              "The application also calls `Base.metadata.create_all()` on start-up, so local SQLite previews need no manual step.", ""]
+    return "\n".join(lines)
+
+
+def write_db_files(bp: Blueprint, project: GeneratedProject, previous: Optional[Blueprint] = None,
+                   change_title: str = "", base_migrations: Optional[List[str]] = None) -> List[str]:
+    """Write models, session module, seed data and migrations.
+
+    For a refinement (``previous`` given and the version being refined has migrations) those migrations are
+    kept unchanged and one new numbered migration evolves the previous schema into the new one.
+    ``base_migrations`` lists the previous version's migrations, so a retried step rewrites the same new file.
+    """
     project.write("backend/app/database.py", render_database_module(), AGENT)
     project.write("backend/app/models.py", render_models(bp), AGENT)
     allocations = {e.name: entity_rule_config(bp, e)["allocations"] for e in bp.entities}
     project.write("backend/app/seed_data.py", render_seed_data(bp, {k: v for k, v in allocations.items() if v}), AGENT)
-    project.write("backend/migrations/001_initial_schema.sql", up_sql, AGENT)
-    project.write("backend/migrations/001_initial_schema.down.sql", down_sql, AGENT)
-    project.write("backend/migrations/README.md", (
-        "# Database migrations\n\n"
-        "Generated by the FORGE AI Database Agent.\n\n"
-        "* `001_initial_schema.sql` creates every table, foreign key, CHECK constraint and index (PostgreSQL).\n"
-        "* `001_initial_schema.down.sql` reverts it.\n\n"
-        "Apply with `psql \"$DATABASE_URL\" -f migrations/001_initial_schema.sql`.\n"
-        "The application also calls `Base.metadata.create_all()` on start-up, so local SQLite previews need no manual step.\n"
-    ), AGENT)
+    migrations = sorted(base_migrations) if base_migrations is not None else existing_migrations(project)
+    if previous is not None and migrations:
+        from backend.codegen.migration_diff import render_incremental_migration
+
+        for path in migrations:
+            project.keep(path, AGENT)
+            project.keep(path[:-4] + ".down.sql", AGENT)
+        number = int(MIGRATION_RE.match(migrations[-1]).group(1)) + 1
+        rendered = render_incremental_migration(previous, bp, number, change_title)
+        if rendered is not None:
+            up_sql, down_sql, slug = rendered
+            name = f"backend/migrations/{number:03d}_{slug}"
+            project.write(name + ".sql", up_sql, AGENT)
+            project.write(name + ".down.sql", down_sql, AGENT)
+            migrations.append(name + ".sql")
+    else:
+        up_sql, down_sql = render_migration_sql(bp)
+        project.write("backend/migrations/001_initial_schema.sql", up_sql, AGENT)
+        project.write("backend/migrations/001_initial_schema.down.sql", down_sql, AGENT)
+        migrations = ["backend/migrations/001_initial_schema.sql"]
+    project.write("backend/migrations/README.md", _migrations_readme(migrations), AGENT)
     return project.files_by_agent(AGENT)

@@ -89,6 +89,32 @@ def _user_entity(roles: List[UserRole]) -> DatabaseEntity:
     )
 
 
+def _links_to_owner(f) -> bool:
+    """A field linking to app 'Owner' records (not the owner_id -> User ownership column)."""
+    target = to_pascal(singularize(f.references)) if f.references else ""
+    return target == "Owner" or (safe_identifier(f.name) in ("owner", "owner_id") and target != "User")
+
+
+def _owner_alias(entities: List[DatabaseEntity]) -> str:
+    """New name for an app entity called 'Owner' that other records link to ('' when no rename is needed).
+
+    Such a link would be called owner_id, the column that records which user owns a row. The first linking
+    entity gives the prefix ("pets -> owners" -> PetOwner). An Owner nothing links to keeps its name, so
+    existing projects are not renamed.
+    """
+    if not any(e.name and to_pascal(singularize(e.name)) == "Owner" for e in entities):
+        return ""
+    taken = {to_pascal(singularize(e.name)) for e in entities if e.name}
+    linking = [to_pascal(singularize(e.name)) for e in entities if e.name and to_pascal(singularize(e.name))
+               not in ("Owner", "User") and any(_links_to_owner(f) for f in e.fields)]
+    if not linking:
+        return ""
+    for name in linking:
+        if f"{name}Owner" not in taken:
+            return f"{name}Owner"
+    return "OwnerProfile" if "OwnerProfile" not in taken else "OwnerRecord"
+
+
 def normalize_requirements(pm: PMOutput) -> PMOutput:
     """Enforce conventions every downstream agent depends on. Raises PromptValidationError if unusable."""
     data = pm.model_copy(deep=True)
@@ -114,9 +140,16 @@ def normalize_requirements(pm: PMOutput) -> PMOutput:
     entities: List[DatabaseEntity] = []
     renamed: Dict[str, str] = {}
     seen_entities = set()
+    owner_alias = _owner_alias(data.database_entities)
     for entity in data.database_entities:
         original = entity.name
         name = to_pascal(singularize(entity.name)) if entity.name else ""
+        if name == "Owner" and owner_alias:
+            # A link to 'Owner' records would be called owner_id, the column that records which user owns a row
+            name = owner_alias
+            renamed["Owner"] = owner_alias
+            data.ambiguities.append(f"'{original}' records are generated as {owner_alias} because 'owner' is "
+                                    "reserved for record ownership; the screens keep the requested name.")
         if not name or name.lower() in seen_entities or name == "User":
             continue
         seen_entities.add(name.lower())
@@ -135,12 +168,17 @@ def normalize_requirements(pm: PMOutput) -> PMOutput:
         data.ambiguities.append(f"Only the first {MAX_ENTITIES} entities are generated; not generated: {', '.join(dropped)}.")
 
     entity_names = {e.name for e in entities} | {"User"}
+    field_renames: Dict[str, Dict[str, str]] = {}  # entity -> {old field: new field}
 
     for entity in entities:
         fields: List[EntityField] = []
         seen = set()
         for f in entity.fields:
             fname = safe_identifier(f.name)
+            if owner_alias and entity.name != owner_alias and _links_to_owner(f):
+                f.references = owner_alias  # "Pet.owner -> Owner" links to the renamed records, not to a user
+                fname = fk_field_name(owner_alias)
+                field_renames.setdefault(entity.name, {}).update({"owner_id": fname, "owner": fname})
             if fname in seen or fname in {"id", "created_at", "updated_at", "owner_id", "user_id"}:
                 continue
             ftype = _normalize_type(f.type)
@@ -238,6 +276,8 @@ def normalize_requirements(pm: PMOutput) -> PMOutput:
             data.module_specs.append(ModuleSpec(key=to_snake(e.name), name=label, label=label, entities=[e.name]))
     for rule in data.business_rules:
         rule.entity = renamed.get(rule.entity, rule.entity)
+        moved = field_renames.get(rule.entity, {})
+        rule.fields = [moved.get(name, name) for name in rule.fields]
     for wf in data.workflows:
         wf.entity = renamed.get(wf.entity, wf.entity)
     role_names = {r.name for r in data.user_roles}

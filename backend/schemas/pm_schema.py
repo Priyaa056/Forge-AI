@@ -138,6 +138,38 @@ class TraceItem(BaseModel):
     status: str = Field(default="mapped", description="mapped | unsupported")
 
 
+class ChangeItem(BaseModel):
+    """One difference between the previous and the refined specification."""
+    action: str = Field(..., description="added | removed | modified | renamed")
+    area: str = Field(..., description="project | theme | entity | field | module | role | permission | workflow | rule | metric | seed")
+    target: str
+    detail: str = ""
+    agents: List[str] = Field(default_factory=list, description="Agents whose files this change affects")
+
+
+class AgentImpact(BaseModel):
+    agent: str = Field(..., description="pm | ui | backend | db | auth | qa | deploy")
+    action: str = Field(..., description="plan | update | reuse | validate | package")
+    reasons: List[str] = Field(default_factory=list)
+
+
+class ChangePlan(BaseModel):
+    """The PM agent's plan for an iterative refinement of an existing application."""
+    change_request: str
+    base_run_id: Optional[str] = None
+    base_version: Optional[int] = None
+    summary: str = ""
+    applied: List[str] = Field(default_factory=list, description="Operations derived from the request")
+    changes: List[ChangeItem] = Field(default_factory=list)
+    agents: List[AgentImpact] = Field(default_factory=list)
+    preserved: Dict[str, int] = Field(default_factory=dict, description="Unchanged items kept from the previous version")
+    unresolved: List[str] = Field(default_factory=list, description="Parts of the request that could not be applied")
+    notes: List[str] = Field(default_factory=list)
+
+    def agents_to_run(self) -> List[str]:
+        return [a.agent for a in self.agents if a.action != "reuse"]
+
+
 class PMOutput(BaseModel):
     """PM Agent JSON output schema (requirements.json)."""
     project_name: str = Field(..., description="Project name")
@@ -174,3 +206,4 @@ class PMOutput(BaseModel):
     demo_data: bool = Field(default=False, description="The prompt asked for sample/demo data")
     requirement_trace: List[TraceItem] = Field(default_factory=list)
     spec_version: int = Field(default=2)
+    change_plan: Optional[ChangePlan] = Field(default=None, description="Set when this specification refines an earlier version")

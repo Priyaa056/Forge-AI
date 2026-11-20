@@ -17,6 +17,8 @@ class GeneratedProject:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.manifest: Dict[str, Dict] = {}
+        self.written: Dict[str, set] = {}  # agent -> paths written (or kept) since start_session(agent)
+        self.owned_at_start: Dict[str, List[str]] = {}  # agent -> paths it owned when its session started
         manifest_path = self.root / MANIFEST_NAME
         if manifest_path.is_file():
             try:
@@ -46,7 +48,39 @@ class GeneratedProject:
             "sha256": hashlib.sha256(data.encode("utf-8")).hexdigest(),
             "bytes": len(data.encode("utf-8")),
         }
+        self.written.setdefault(agent, set()).add(key)
         return target
+
+    # ------------------------------------------------------------------ refinement support
+    def start_session(self, agent: str) -> None:
+        """Begin tracking what ``agent`` writes (refinements remove files an agent no longer produces)."""
+        self.written[agent] = set()
+        self.owned_at_start[agent] = self.files_by_agent(agent)
+
+    def keep(self, rel_path: str, agent: str) -> None:
+        """Mark an existing file as still produced by ``agent`` without rewriting it (e.g. earlier migrations)."""
+        key = str(PurePosixPath(rel_path.replace("\\", "/")))
+        if key in self.manifest:
+            self.written.setdefault(agent, set()).add(key)
+
+    def remove_stale(self, agent: str, previously_owned: Optional[List[str]] = None) -> List[str]:
+        """Delete files ``agent`` owned before this session but did not write again (e.g. a removed module's page)."""
+        if previously_owned is None:
+            previously_owned = self.owned_at_start.get(agent, [])
+        removed = []
+        for rel in sorted(set(previously_owned) - self.written.get(agent, set())):
+            if self.manifest.get(rel, {}).get("agent") != agent:
+                continue
+            target = self._resolve(rel)
+            if target.is_file():
+                target.unlink()
+            self.manifest.pop(rel, None)
+            removed.append(rel)
+            parent = target.parent
+            while parent != self.root and parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
+                parent = parent.parent
+        return removed
 
     def read(self, rel_path: str) -> str:
         return self._resolve(rel_path).read_text(encoding="utf-8")

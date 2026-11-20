@@ -18,6 +18,7 @@ export function AgentPipeline({
         const info = summary?.agents[agent.stage];
         const status = info?.status ?? "PENDING";
         const clickable = Boolean(info?.artifact_id);
+        const reused = info?.generation_mode === "reused";
         return (
           <li key={agent.stage}>
             <button
@@ -30,6 +31,7 @@ export function AgentPipeline({
                 status === "RUNNING" && "border-primary",
                 status === "FAILED" && "border-destructive/60",
                 status === "SKIPPED" && "opacity-60",
+                reused && "border-dashed bg-muted/40",
               )}
               aria-label={`${agent.name}: ${STATUS_LABEL[status]}${clickable ? " — open artifact" : ""}`}
             >
@@ -38,7 +40,11 @@ export function AgentPipeline({
               <span className="min-w-0 flex-1">
                 <span className="block font-medium">{agent.name}</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {info?.error ? info.error : agent.does}
+                  {info?.error
+                    ? info.error
+                    : reused
+                      ? `Unchanged — reused from v${info?.reused_from_version ?? "?"}`
+                      : agent.does}
                 </span>
               </span>
               <span className="hidden flex-col items-end text-xs text-muted-foreground sm:flex">

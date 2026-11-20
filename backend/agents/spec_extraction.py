@@ -50,6 +50,32 @@ CREATE_VERBS = {"register", "add", "create", "record", "log", "book", "schedule"
                 "enter", "define", "document", "assign", "list", "catalog", "catalogue", "sell", "rent", "lend",
                 "borrow", "dispatch", "process", "handle", "track", "save"}
 WEAK_VERBS = {"track", "handle", "process", "list"}  # objects only promoted when no module entity exists
+# Clauses inside enumerations ("recruiters post job openings, candidates apply, and interviews are scheduled"):
+# verbs that can follow a plural subject, the record an intransitive verb implies, and plurals that are not subjects.
+CLAUSE_VERBS = CREATE_VERBS | {"use", "apply", "approve", "reject", "review", "rate", "pay", "order", "return",
+                               "attend", "treat", "prescribe", "teach", "visit", "join", "receive", "send", "write",
+                               "make", "buy", "deliver", "ship", "inspect", "repair", "sign", "update", "view",
+                               "browse", "check", "complete", "own", "run", "host", "comment", "vote", "bid",
+                               "donate", "subscribe", "collect", "complain", "need", "have", "belong", "contain",
+                               "grade", "mark", "assess", "evaluate", "supervise", "learn", "study", "choose",
+                               "select", "earn", "redeem", "lease", "train", "lead", "share", "follow", "invite",
+                               "accept", "decline", "cancel", "confirm", "reserve", "purchase", "transfer", "withdraw",
+                               "deposit", "claim", "verify", "monitor", "measure", "diagnose", "dispense", "administer",
+                               "vaccinate", "groom", "drive", "ride", "load", "pack", "scan", "audit", "allocate",
+                               "rank", "nominate", "elect", "read", "watch", "take", "give", "find", "search"}
+EVENT_OF_VERB = {"apply": "application", "enroll": "enrollment", "enrol": "enrolment", "subscribe": "subscription",
+                 "donate": "donation", "book": "booking", "order": "order", "pay": "payment", "rent": "rental",
+                 "review": "review", "rate": "rating", "vote": "vote", "bid": "bid", "complain": "complaint",
+                 "borrow": "loan"}
+FIELD_ONLY_HEADS = {"name", "title", "date", "time", "status", "amount", "price", "cost", "fee", "number", "id", "email",
+                    "phone", "address", "age", "gender", "description", "note", "quantity", "qty", "level", "type",
+                    "size", "area", "detail", "photo", "image", "total", "balance", "score", "rating"}
+NOT_CLAUSE_SUBJECTS = {"sales", "goods", "news", "series", "species", "analytics", "logistics", "statistics", "status",
+                       "details", "settings", "records", "logs", "reports", "users"}
+PASSIVE_CLAUSE = re.compile(
+    r"^(?:the\s+)?([a-z][a-z -]*?)\s+(?:is|are|was|were|gets?|can be|will be|should be|must be|has been|have been)\s+"
+    r"(?:also\s+|then\s+|automatically\s+)?([a-z]+ed|made|paid|sent|kept|held|sold|built|shown|done|given|taken|"
+    r"written|set)\b(.*)$")
 COLLECTION_HEADS = {"inventory", "list", "catalog", "catalogue", "details", "detail", "information", "info", "data",
                     "profile", "profiles", "database", "directory", "register", "stock", "listing", "listings", "collection"}
 FEATURE_HEADS = {"search", "searching", "sorting", "filtering", "registration", "login", "logins", "authentication",
@@ -237,7 +263,40 @@ def _is_person_noun(word: str) -> bool:
         return False
     return (len(w) > 3 and w.endswith(lex.PERSON_SUFFIXES) and w not in lex.NOT_PEOPLE) or w in {
         "staff", "admin", "administrator", "nurse", "clerk", "chef", "guest", "patient", "student", "client",
-        "customer", "member", "parent", "tenant", "resident", "coach", "athlete", "volunteer", "agent"}
+        "customer", "member", "parent", "tenant", "resident", "coach", "athlete", "volunteer", "agent", "vet",
+        "candidate", "applicant", "pupil", "pilot"}
+
+
+def _clause(item: str) -> Optional[Tuple[List[str], str, str, bool]]:
+    """Read an enumeration item that is a clause, not a noun phrase.
+
+    'candidates apply' -> (['candidates'], 'apply', '', False); 'experiments use samples' -> (..., 'samples', False);
+    'results are recorded' -> (['results'], 'recorded', '', True). Noun phrases ('purchase orders', 'sales report')
+    return None: the subject must be a plural noun and, unless it names people, the verb needs an object.
+    """
+    low = re.sub(r"\s+", " ", item.strip().lower()).strip(" .!?")
+    pm = PASSIVE_CLAUSE.match(low)
+    if pm:
+        subject = _cut_at_preposition(_clean_phrase(pm.group(1)))
+        return (subject, pm.group(2), pm.group(3).strip(), True) if subject else None
+    words = low.split()
+    for i in range(1, min(len(words), 4)):
+        verb, last = words[i], words[i - 1]
+        if verb not in CLAUSE_VERBS or last in NOT_CLAUSE_SUBJECTS:
+            continue
+        plural = (last.endswith("s") and not last.endswith("ss") and singularize(last) != last) or last in {
+            "staff", "people", "personnel"}
+        subject = _clean_phrase(" ".join(words[:i]))
+        if not plural or not subject or any(w in PREPOSITIONS or w in CLAUSE_VERBS for w in subject):
+            continue
+        rest = " ".join(words[i + 1:])
+        if rest.split()[:1] in (["off"], ["up"], ["out"]) or (
+                rest.split()[:1] == ["in"] and verb in {"check", "log", "sign", "hand", "fill", "drop"}):
+            rest = " ".join(rest.split()[1:])  # "technicians sign off tasks", "staff check guests in"
+        if not rest and not _is_person_noun(subject[-1]):
+            continue  # "sales order", "assets register": a noun phrase after all
+        return subject, verb, rest, False
+    return None
 
 
 # ----------------------------------------------------------------------------------------------
@@ -430,6 +489,7 @@ class Extraction:
         self.attribute_asks: List[str] = []
         self.pending_attributes: List[str] = []
         self.consumed: Set[str] = set()  # sentences whose lists were used as statuses/fields
+        self.clause_roles: Dict[str, Dict] = {}  # people acting in sentences; used when no roles are declared
         self.seed: Dict[str, List[str]] = {}
         self.ambiguities: List[str] = []
         self.trace: List[TraceItem] = []
@@ -522,6 +582,10 @@ class Extraction:
             key = to_snake(_singular_phrase(words))
         if key in self.negative or head in self.negative:
             return None
+        if allow_new and len(words) == 1:
+            twins = [k for k in self.entities if k.endswith("_" + key)]
+            if len(twins) == 1:
+                return twins[0]  # "receptionists book appointments" after "vet appointments": the same records
         if not allow_new or len(key) < 3:
             return None
         self.entities[key] = EntityDraft(key=key, order=len(self.entities), sources=[source] if source else [])
@@ -880,6 +944,87 @@ def _module_label(ex: Extraction, title_words: List[str], module_entities: List[
     return " & ".join(l[:1].upper() + l[1:] for l in labels)[:40]
 
 
+def _note_role(ex: Extraction, word: str, mention: str) -> None:
+    """People who act in a sentence ('receptionists book appointments') are user roles of the app."""
+    word = re.sub(r"[^a-z]", "", word.lower())
+    noun = to_snake(singularize(word))
+    if not word or not _is_person_noun(word) or noun in {"user", "person", "people", "customer_user"}:
+        return
+    noun = "admin" if noun == "administrator" else noun
+    role = ex.clause_roles.setdefault(noun, {"description": "", "is_admin": noun.startswith("admin"), "mentions": ""})
+    role["mentions"] = (role["mentions"] + " " + mention).strip()
+
+
+def _clause_entities(ex: Extraction, item: str, source: str, allow_new: bool,
+                     previous: Optional[str] = None) -> Optional[List[str]]:
+    """Records (and roles) named by a clause in an enumeration; None when the item is a plain noun phrase.
+
+    'candidates apply' -> candidate + application (and a candidate role); 'experiments use samples' -> experiment
+    (referencing sample); 'results are recorded' -> result; 'vets record vaccinations' -> vet role + vaccination.
+    `previous` is the record listed just before ("post job openings, candidates apply": applications are for them).
+    """
+    parsed = _clause(item)
+    if parsed is None:
+        return None
+    subject, verb, rest, passive = parsed
+    with_part = re.search(r"\bwith\s+(.+)$", rest)
+    obj_text = re.split(r"\b(?:for|from|to|of|in|on|into|across|per|between|with|by|at|when|where|after|before)\b",
+                        rest)[0].strip() if rest else ""
+    objects = [o for o in _split_list(obj_text) if _clean_phrase(o)] if obj_text and not passive else []
+    # "students enroll in courses", "candidates apply for jobs": the thing after the preposition is a record too
+    pobj = re.match(r"^(?:in|for|to|on|at|into)\s+(.+)$", rest) if not passive and not objects else None
+    pobj_text = re.split(r"\b(?:for|from|to|of|in|on|into|with|by|at|when|where)\b", pobj.group(1))[0].strip() \
+        if pobj else ""
+    keys: List[str] = []
+
+    def add(phrase: str, recorded: bool = False) -> Optional[str]:
+        key = ex.add_entity(phrase, source, allow_new=allow_new)
+        if key is None and recorded and allow_new:
+            # "results are recorded", "candidates apply" (-> applications): the clause itself says these are records,
+            # even though 'result', 'location' or 'application' usually name a field or the app
+            words = _cut_at_preposition(_clean_phrase(phrase))
+            words = words[-3:]
+            if words and not any(w in TECH_WORDS or _ui_word(w) for w in words) and \
+                    singularize(words[-1]) not in FIELD_ONLY_HEADS:
+                key = to_snake(_singular_phrase(words))
+                if key in ex.negative or len(key) < 3:
+                    key = None
+                elif key not in ex.entities:
+                    ex.entities[key] = EntityDraft(key=key, order=len(ex.entities), sources=[source] if source else [])
+        if key and key not in keys:
+            keys.append(key)
+        return key
+
+    if passive:
+        subject_key = add(" ".join(subject), recorded=subject[-1] not in {"user", "users"})
+        by = re.search(r"\bby\s+([a-z ]+)$", rest)
+        if by and _clean_phrase(by.group(1)):
+            _note_role(ex, _clean_phrase(by.group(1))[-1], f"{verb} {' '.join(subject)}")
+    elif _is_person_noun(subject[-1]):
+        _note_role(ex, subject[-1], f"{verb} {obj_text}".strip())
+        subject_key = None
+        if not objects:  # "candidates apply": the people are records too, and so is what the verb creates
+            subject_key = add(" ".join(subject))
+            target_key = add(pobj_text) if pobj_text and _clean_phrase(pobj_text) else None
+            event = EVENT_OF_VERB.get(verb)
+            event_key = add(event, recorded=True) if event else None
+            for parent in (subject_key, target_key or previous):
+                if event_key and parent and parent in ex.entities and parent != event_key:
+                    ex.entities[event_key].refs.add(parent)
+        for o in objects:
+            add(o)
+    else:
+        subject_key = add(" ".join(subject))
+        for o in objects:
+            key = add(o)
+            if key and subject_key and key != subject_key:
+                ex.entities[subject_key].refs.add(key)  # "experiments use samples"
+    if with_part and subject_key:
+        for f in _split_list(with_part.group(1)):
+            ex.add_field(subject_key, f)  # "interviews are scheduled with feedback"
+    return keys
+
+
 def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str, strong: bool) -> List[str]:
     """Handle '<verb> <object> with/by selecting/including <fields>' and status lists. Returns entities touched."""
     low = sentence.lower().strip()
@@ -927,6 +1072,8 @@ def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str,
         if before and (before[0] in DETERMINERS or before[0] in {"online", "web", "e-commerce", "ecommerce", "retail",
                                                                   "grocery", "app", "data", "audit", "activity"}):
             continue  # "an online store with ...": a noun, not a verb
+        if before and before[0].isalpha() and before[0].endswith("s"):
+            _note_role(ex, before[0], f"{verb} {obj}")  # "receptionists book appointments"
         if verb in {"display", "show"} and not fields:
             # "display total amount, paid amount, and pending balance" -> fields of context entity
             if context and not status_list and "," in obj and not re.search(r"\b(chart|trend|statistic|report|table)", obj):
@@ -961,7 +1108,15 @@ def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str,
                     to_snake(" ".join(last[:-1]) or "other")]
                 touched.append(context[0])
                 continue
+        clause_target: Optional[str] = None
         for item in obj_items:
+            clause_keys = _clause_entities(ex, item, source, allow_new=allow_new,
+                                           previous=keys[-1] if keys else None)
+            if clause_keys is not None:  # "candidates apply", "results are recorded": not record names
+                keys.extend(k for k in clause_keys if k not in keys)
+                clause_target = clause_keys[0] if clause_keys else clause_target
+                ex.consumed.add(sentence)
+                continue
             if re.match(r"^\s*(?:their|its|his|her)\b", item) and (keys or context):
                 ex.add_field((keys or context)[0], item)  # "houseplants and their watering schedule"
                 continue
@@ -993,7 +1148,7 @@ def _field_lists(ex: Extraction, sentence: str, context: List[str], source: str,
                 touched.append(key)
         if fields and keys:
             ex.consumed.add(sentence)
-            target = keys[0]
+            target = clause_target or keys[0]  # "... and interviews are scheduled with feedback" -> interview
             for item in _split_list(fields):
                 ex.add_field(target, item)
         # recording an existing record inside an event module links them ("record harvested crops" in Harvests)
@@ -1235,6 +1390,22 @@ def _roles(ex: Extraction, blocks: List[Block]) -> None:
             w = _clean_phrase(item)
             if w and len(w) <= 2 and _is_person_noun(w[-1]):
                 ex.roles.setdefault(to_snake(singularize(w[-1])), {"description": "", "is_admin": w[-1].startswith("admin"), "mentions": ""})
+    declared = bool(ex.roles)  # a roles section or "roles: ..." list is the complete list
+    if not declared:
+        # people who act in sentences: "Managers approve purchase orders", "Front desk staff check guests in"
+        for b in blocks:
+            if b.kind in ("meta", "dashboard"):
+                continue
+            for sentence in b.body + ([b.title] if b.title else []):
+                for part in re.split(r",|;|\band\b|\bwhere\b|\bwhile\b|:", sentence.lower()):
+                    parsed = _clause(re.sub(r"^\s*(?:only|all|the|and|then)\s+", "", part))
+                    if parsed and not parsed[3] and _is_person_noun(parsed[0][-1]):
+                        _note_role(ex, parsed[0][-1], f"{parsed[1]} {parsed[2]}".strip())
+                    by = re.search(r"\bby\s+(?:the\s+)?([a-z ]+)$", parsed[2]) if parsed and parsed[3] else None
+                    if by and _clean_phrase(by.group(1)):  # "leave requests are approved by managers"
+                        _note_role(ex, _clean_phrase(by.group(1))[-1], f"{parsed[1]} {' '.join(parsed[0])}")
+        for name, info in ex.clause_roles.items():
+            ex.roles.setdefault(name, info)
     for m in re.finditer(r"\b(?:for|used by|helps|lets|allows)\s+((?:[a-z]+\s+){0,2}?[a-z]+s)\b(?:\s+(?:to|and|who|in|with|at)\b|[.,]|$)", ex.lower):
         w = _clean_phrase(m.group(1))
         if w and _is_person_noun(w[-1]) and singularize(w[-1]) not in ex.entities and w[-1] not in {"users", "others", "items"}:
@@ -1353,6 +1524,15 @@ def extract_spec(prompt: str) -> PMOutput:
         for sentence in b.body:
             if not usable(sentence) or is_design_sentence(sentence):
                 continue
+            # "Build X with A, B and an admin dashboard showing overdue loans": the dashboard clause lists figures,
+            # not records (it would otherwise become an 'OverdueLoan' record and module)
+            dm = re.search(r"(?:,\s*|\s+)(?:and\s+)?(?:an?\s+|the\s+)?(?:(?:admin|main|analytics|management|home)\s+)?"
+                           r"dashboard\s+(?:showing|that shows|which shows|displaying|listing|to show|with)\s+(.+?)(?=[.;!]|$)",
+                           sentence, re.I)
+            if dm and re.match(r"^\s*(?:build|create|make|develop|generate|design)\b", sentence, re.I):
+                ex.wants_dashboard = True
+                ex.metric_phrases.append("dashboard showing " + dm.group(1))
+                sentence = sentence[:dm.start()] + " and an admin dashboard" + sentence[dm.end():]
             if re.search(r"\bdashboard\b", sentence, re.I):
                 ex.wants_dashboard = True
                 if not re.match(r"^\s*(?:build|create|make|develop|generate|design)\b", sentence, re.I):
@@ -1375,6 +1555,21 @@ def extract_spec(prompt: str) -> PMOutput:
                 sentence = re.sub(r"\s*(?:,|\band\b)?\s*$", "", sentence[:rm.start()]) + sentence[rm.end():]
                 if len(_words(sentence)) < 2:
                     continue  # "also add projects and replace X with Y": the rest is processed below
+            # "Build a school app where students enroll in courses, teachers grade assignments and attendance is
+            # tracked": each clause names records (verbs need not be ones that create things)
+            wm = None if module_entities else re.search(r"\b(?:where|in which|so that|such that)\s+(.+?)(?:[.;!]|$)",
+                                                        sentence, re.I)
+            previous: Optional[str] = None
+            for item in _split_list(wm.group(1)) if wm else []:
+                clause_keys = _clause_entities(ex, item, sentence, allow_new=True, previous=previous)
+                for key in clause_keys or []:
+                    previous = key
+                    if key not in seen_module_keys:
+                        seen_module_keys.add(key)
+                        label = humanize(pluralize(key)).capitalize()
+                        ex.modules.append(ModuleSpec(key=key, name=label, label=label, entities=[key],
+                                                     source=sentence[:200]))
+                        ex.trace_item("module", item, [to_pascal(key)], item)
             touched = _field_lists(ex, sentence, module_entities, sentence, strong=True)
             for key in touched:
                 if key not in module_entities and title:
@@ -1392,11 +1587,22 @@ def extract_spec(prompt: str) -> PMOutput:
                 if len(values) >= 2:
                     ex.seed.setdefault(module_entities[0], []).extend(values)
             # flat enumerations: "Build X with A, B and C" / "manage A, B and C"
-            for lm in re.finditer(r"\b(?:with|including|includes|include|covering|such as|manage|managing|track|tracking|handles?|supports?|modules?:?|features?:?)\s+((?:[a-z][a-z -]*?,\s*)+(?:and\s+|or\s+)?[a-z][a-z -]*?)(?:[.;:!]|$)", sentence.lower()):
+            # ("Car rental app: customers, cars, rental bookings, payments and damage reports" lists them after a colon)
+            for lm in re.finditer(r"\b(?:with|including|includes|include|covering|such as|manage|managing|track|tracking|handles?|supports?|modules?:?|features?:?|(?:app|application|system|platform|tracker|portal|tool|software|website)\s*:)\s+((?:[a-z][a-z -]*?,\s*)+(?:and\s+|or\s+)?[a-z][a-z -]*?)(?:[.;:!]|$)", sentence.lower()):
                 items = _split_list(lm.group(1))
                 if len(items) < 2 or module_entities or sentence in ex.consumed:
                     continue  # inside a described module, lists are fields/statuses (handled above)
                 for item in items:
+                    clause_keys = _clause_entities(ex, item, sentence, allow_new=True)
+                    if clause_keys is not None:  # "experiments use samples": the records it names, not the clause
+                        for key in clause_keys:
+                            if key not in seen_module_keys:
+                                seen_module_keys.add(key)
+                                label = humanize(pluralize(key)).capitalize()
+                                ex.modules.append(ModuleSpec(key=key, name=label, label=label, entities=[key],
+                                                             source=sentence[:200]))
+                                ex.trace_item("module", item, [to_pascal(key)], item)
+                        continue
                     words = _cut_at_preposition(_clean_phrase(item))
                     if not words:
                         continue

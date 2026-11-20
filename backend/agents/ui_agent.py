@@ -30,12 +30,15 @@ class UIAgent(BaseAgent[UIOutput]):
         project: Optional[Any] = None,
         log_fn=None,
         backend_output_path: Optional[str] = None,  # accepted for backwards compatibility (unused)
+        reuse_styling: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(output_schema_cls=UIOutput, output_filepath=output_filepath,
                          artifact_context=artifact_context, project=project, log_fn=log_fn)
         self.pm_output_path = pm_output_path
         self.pm_data: Optional[PMOutput] = None
         self.ui_spec: Optional[Dict[str, Any]] = None
+        # refinements keep the previous version's visual identity (colours the user asks for still win)
+        self.reuse_styling = reuse_styling
 
     def load_inputs(self) -> None:
         self.pm_data = self.load_upstream("pm", PMOutput, self.pm_output_path)
@@ -69,6 +72,11 @@ class UIAgent(BaseAgent[UIOutput]):
         bp = build_blueprint(self.pm_data)
         styling: Dict[str, Any] = {}
         client = self.get_llm()
+        if self.reuse_styling is not None:
+            styling = {k: v for k, v in self.reuse_styling.items()
+                       if k in ("primary_color", "tagline", "design_system_notes") and v}
+            client = None
+            self.log("Keeping the visual identity of the previous version")
         if client is not None:
             try:
                 styling = self._llm_styling(client, bp)
