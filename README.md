@@ -227,7 +227,7 @@ Forge-AI/
 │       └── test/             Vitest tests
 ├── tests/                    backend pytest suite (+ tests/prompts/ sample requirement documents)
 ├── docker/                   Dockerfile.backend, Dockerfile.frontend
-├── docs/                     project report, figures, implementation notes
+├── docs/                     project report (PDF), figures, implementation notes
 ├── docker-compose.yml        runs the platform itself (API :8000, web app :3000)
 ├── requirements.txt          backend dependencies
 ├── pytest.ini
@@ -370,12 +370,10 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-This starts the web app on port 3000 and the API on port 8000. Two limitations:
-
-- The Compose file currently forwards only `USE_LLM`, `GOOGLE_API_KEY`, `GEMINI_MODEL`,
-  `FORGE_QA_FRONTEND_BUILD` and `FORGE_SECRET_KEY` to the API container, so Groq settings are not
-  passed through.
-- Live previews of generated apps run inside the API container and are not reachable from the host.
+This starts the web app on port 3000 and the API on port 8000. Compose reads the root `.env` file and
+passes the LLM settings (`USE_LLM`, `LLM_PROVIDER` and the provider's key and model),
+`FORGE_QA_FRONTEND_BUILD` and `FORGE_SECRET_KEY` to the API container. Live previews of generated apps
+run inside the API container, so they are not reachable from the host.
 
 ## Application generation workflow
 
@@ -480,7 +478,7 @@ users' projects return `404`. Full request and response schemas are available at
 python -m pytest
 ```
 
-The suite has **241 tests in 33 files** under `tests/` and takes about 5–6 minutes. Its slower tests
+The suite has **229 tests in 31 files** under `tests/` and takes about 5 minutes. Its slower tests
 run real end-to-end generations, including generated test suites and health checks. It covers:
 
 - platform accounts and project ownership;
@@ -557,7 +555,6 @@ These are **planned, not implemented**:
 - Restore requested records the LLM leaves out by cross-checking its specification with the rule-based analysis.
 - Add the validation error to the prompt on LLM retries, so the model can correct itself.
 - Recognise more phrasings in rule-based mode (two-item lists without commas, more domain words).
-- Pass all LLM provider settings through Docker Compose.
 - Build and run the generated Docker images as part of Deploy, and deploy to a cloud host.
 - Cancel a running build.
 - Password recovery and e-mail verification for platform accounts.
